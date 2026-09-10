@@ -1,0 +1,198 @@
+import {
+  FeeType,
+  FeeVoucher,
+  Payment,
+  PaymentReceipt,
+  Installment,
+} from "@/types";
+
+export const MOCK_FEE_TYPES: FeeType[] = [
+  {
+    id: "ft-tuition",
+    name: "Tuition Fee",
+    category: "tuition",
+    defaultAmountPKR: 45000,
+    description: "Per semester / quarterly academic tuition charge.",
+  },
+  {
+    id: "ft-admission",
+    name: "Admission Fee (One-Time)",
+    category: "admission",
+    defaultAmountPKR: 15000,
+    description: "Non-refundable one-time initial enrollment fee.",
+  },
+  {
+    id: "ft-exam",
+    name: "Semester Examination Fee",
+    category: "examination",
+    defaultAmountPKR: 5000,
+    description: "Covers examination papers, invigilation, and transcripts.",
+  },
+  {
+    id: "ft-transport",
+    name: "Bus Route Transport Charges",
+    category: "transport",
+    defaultAmountPKR: 8500,
+    description: "Monthly college bus transportation charge.",
+  },
+  {
+    id: "ft-lab",
+    name: "Computer & Science Lab Fund",
+    category: "lab",
+    defaultAmountPKR: 4000,
+    description: "Software licenses, hardware maintenance, and lab consumables.",
+  },
+];
+
+export const MOCK_FEE_VOUCHERS: FeeVoucher[] = [
+  {
+    id: "vch-2026-001",
+    voucherNumber: "VCH-2026-0891",
+    studentId: "std-2026-001",
+    studentName: "Ali Hasan Siddiqui",
+    studentRollNumber: "BCS-F24-014",
+    programName: "BS Computer Science",
+    academicSessionName: "Fall 2026",
+    items: [
+      { id: "vitem-1", title: "Tuition Fee (Semester 3)", category: "tuition", amountPKR: 45000 },
+      { id: "vitem-2", title: "Semester Examination Fee", category: "examination", amountPKR: 5000 },
+      { id: "vitem-3", title: "Computer Lab Maintenance", category: "lab", amountPKR: 4000 },
+    ],
+    subtotalPKR: 54000,
+    discountPKR: 4000, // Merit scholarship
+    totalAmountPKR: 50000,
+    paidAmountPKR: 50000,
+    issueDate: "2026-07-15",
+    originalDueDate: "2026-08-05",
+    finalAllowedDate: "2026-08-05",
+    status: "paid",
+    remarks: "Paid in full via JazzCash.",
+  },
+  {
+    id: "vch-2026-002",
+    voucherNumber: "VCH-2026-0942",
+    studentId: "std-2026-002",
+    studentName: "Mahnoor Tariq",
+    studentRollNumber: "BBA-F25-045",
+    programName: "Bachelor of Business Administration (BBA)",
+    academicSessionName: "Fall 2026",
+    items: [
+      { id: "vitem-4", title: "Tuition Fee (Semester 2)", category: "tuition", amountPKR: 41250 },
+      { id: "vitem-5", title: "Bus Transport Charges", category: "transport", amountPKR: 8500 },
+    ],
+    subtotalPKR: 49750,
+    discountPKR: 0,
+    totalAmountPKR: 49750,
+    paidAmountPKR: 0,
+    issueDate: "2026-08-01",
+    originalDueDate: "2026-08-10", // Preserved original due date
+    finalAllowedDate: "2026-08-25", // Extension granted by Admin
+    concession: {
+      id: "cnc-2026-012",
+      voucherId: "vch-2026-002",
+      originalDueDate: "2026-08-10",
+      newAllowedDate: "2026-08-25",
+      discountAmountPKR: 0,
+      reason: "Guardian formal request due to delayed salary disbursement.",
+      grantedByAdminId: "stf-001",
+      grantedByAdminName: "Kashif Shahzad (Accounts Officer)",
+      grantedAtTimestamp: "2026-08-09T11:30:00Z",
+    },
+    status: "extended",
+    remarks: "15-day extension granted by accounts office.",
+  },
+  {
+    id: "vch-2026-003",
+    voucherNumber: "VCH-2026-1004",
+    studentId: "std-2026-003",
+    studentName: "Usman Ghani",
+    studentRollNumber: "FSC-A25-102",
+    programName: "FSc Pre-Engineering",
+    academicSessionName: "Annual Session 2025-2027",
+    items: [
+      { id: "vitem-6", title: "Annual Tuition Installment 2", category: "tuition", amountPKR: 23750 },
+      { id: "vitem-7", title: "Board Examination Fee", category: "examination", amountPKR: 3500 },
+    ],
+    subtotalPKR: 27250,
+    discountPKR: 2250, // Kinship concession
+    totalAmountPKR: 25000,
+    paidAmountPKR: 0,
+    issueDate: "2026-08-01",
+    originalDueDate: "2026-08-15",
+    finalAllowedDate: "2026-08-15",
+    status: "overdue",
+    remarks: "Surcharge of PKR 500 applicable after due date.",
+  },
+];
+
+export const MOCK_PAYMENTS: Payment[] = [
+  {
+    id: "pay-2026-8801",
+    voucherId: "vch-2026-001",
+    voucherNumber: "VCH-2026-0891",
+    studentId: "std-2026-001",
+    studentName: "Ali Hasan Siddiqui",
+    amountPKR: 50000,
+    paymentDate: "2026-08-03",
+    paymentTime: "14:22:10",
+    method: "JazzCash",
+    transactionReference: "JC-99882104512",
+    status: "completed",
+    gatewayResponseMock: "SUCCESS - JazzCash MW 200 OK",
+  },
+  {
+    id: "pay-2026-8802",
+    voucherId: "vch-2026-002",
+    voucherNumber: "VCH-2026-0942",
+    studentId: "std-2026-002",
+    studentName: "Mahnoor Tariq",
+    amountPKR: 25000,
+    paymentDate: "2026-08-18",
+    paymentTime: "10:15:00",
+    method: "Easypaisa",
+    transactionReference: "EP-7741098811",
+    status: "pending",
+    gatewayResponseMock: "PENDING_SETTLEMENT - Easypaisa OTC",
+  },
+];
+
+export const MOCK_PAYMENT_RECEIPTS: PaymentReceipt[] = [
+  {
+    id: "rcp-2026-4401",
+    receiptNumber: "RCP-2026-0891",
+    paymentId: "pay-2026-8801",
+    voucherId: "vch-2026-001",
+    voucherNumber: "VCH-2026-0891",
+    studentId: "std-2026-001",
+    studentName: "Ali Hasan Siddiqui",
+    studentRollNumber: "BCS-F24-014",
+    programName: "BS Computer Science",
+    amountPaidPKR: 50000,
+    paymentDate: "2026-08-03",
+    paymentMethod: "JazzCash",
+    transactionReference: "JC-99882104512",
+    issuedAt: "2026-08-03T14:22:15Z",
+  },
+];
+
+export const MOCK_INSTALLMENTS: Installment[] = [
+  {
+    id: "inst-01",
+    studentId: "std-2026-002",
+    installmentNumber: 1,
+    totalInstallments: 2,
+    amountPKR: 24875,
+    dueDate: "2026-08-10",
+    status: "pending",
+    relatedVoucherId: "vch-2026-002",
+  },
+  {
+    id: "inst-02",
+    studentId: "std-2026-002",
+    installmentNumber: 2,
+    totalInstallments: 2,
+    amountPKR: 24875,
+    dueDate: "2026-10-10",
+    status: "pending",
+  },
+];
