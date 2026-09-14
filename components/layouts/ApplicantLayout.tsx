@@ -22,7 +22,7 @@ export function ApplicantLayout({
     <div className="min-h-screen flex flex-col bg-background text-text-primary">
       <header className="bg-white border-b border-border py-4 px-4 sm:px-8">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center font-bold">
               <GraduationCap className="w-6 h-6" />
             </div>
@@ -39,7 +39,8 @@ export function ApplicantLayout({
           {onBackToMain && (
             <button
               onClick={onBackToMain}
-              className="text-xs font-semibold text-text-secondary hover:text-primary flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="inline-flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap px-2 text-xs font-semibold text-text-secondary hover:text-primary transition-colors cursor-pointer"
+              aria-label="Back to Home"
             >
               <ArrowLeft className="w-4 h-4" /> Back to Home
             </button>

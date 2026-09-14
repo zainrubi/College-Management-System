@@ -18,7 +18,7 @@ export function UnauthorizedView({ reason, allowedRoles = [] }: UnauthorizedView
 
   const portalRouteMap: Record<UserRole, string> = {
     public_visitor: "/",
-    applicant: "/admissions",
+    applicant: "/applicant?tab=application",
     student: "/student",
     teacher: "/teacher",
     admin: "/admin",

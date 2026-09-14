@@ -80,7 +80,7 @@ export function Footer({ variant = "dashboard", className }: FooterProps) {
   /* ─── Public footer — premium redesign ───────────────────────────── */
   return (
     <footer
-      className={cn("relative overflow-hidden bg-[#0a2d2b] text-white", className)}
+      className={cn("relative overflow-hidden bg-[#064E56] text-white", className)}
       aria-label="Site footer"
     >
       {/* Oversized "S" watermark — barely visible depth element */}

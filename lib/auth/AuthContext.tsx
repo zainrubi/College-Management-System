@@ -91,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const sessionUser: User = {
       ...baseMock,
       ...customUser,
+      email: customUser?.email ?? (role === "applicant" ? "" : baseMock.email),
       role,
     };
     setUser(sessionUser);

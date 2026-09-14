@@ -10,6 +10,7 @@ import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { BackToHome } from "../ui/BackToHome";
 import { MOCK_COLLEGE } from "@/lib/mock-data";
+import { loginApplicant, getApplicantPortalDestination } from "@/lib/services/admission-service";
 import {
   GraduationCap,
   Lock,
@@ -30,21 +31,9 @@ export interface LoginFormProps {
   redirectUrl?: string;
 }
 
-/** Formatter helper for phone input */
-function formatPhoneInput(value: string): string {
-  let digits = value.replace(/[^\d+]/g, "");
-  if (digits.startsWith("0")) {
-    if (digits.length <= 4) return digits;
-    if (digits.length <= 7) return `${digits.slice(0, 4)} ${digits.slice(4)}`;
-    return `${digits.slice(0, 4)} ${digits.slice(4, 11)}`;
-  }
-  if (digits.startsWith("+92") || digits.startsWith("92")) {
-    digits = digits.startsWith("+92") ? digits : `+${digits}`;
-    if (digits.length <= 4) return digits;
-    if (digits.length <= 7) return `${digits.slice(0, 4)} ${digits.slice(4)}`;
-    return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7, 14)}`;
-  }
-  return value;
+/** Helper to filter digits only for applicant phone input (max 11 digits) */
+function filterPhoneInput(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 11);
 }
 
 export function LoginForm({
@@ -116,13 +105,13 @@ export function LoginForm({
           defaultSubtitle:
             "Sign in using your mobile phone number and password to view or continue your admission application.",
           identifierLabel: "Registered Mobile Number",
-          identifierPlaceholder: "0312 3456789 or +92 312 3456789",
+          identifierPlaceholder: "03001234567",
           inputType: "tel",
           icon: <GraduationCap className="w-6 h-6 text-primary" />,
           fieldIcon: <Phone className="w-4 h-4" />,
           targetRoute: "/applicant",
-          demoCreds: "Demo Mobile: 0312 3456789 | Pass: any",
-          helperNote: "Email is NOT required for login. Sign in with your registered phone number.",
+          demoCreds: "Use your registered mobile number and password.",
+          helperNote: undefined,
         };
     }
   };
@@ -134,7 +123,12 @@ export function LoginForm({
     setErrorMsg("");
 
     if (!identifier.trim()) {
-      setErrorMsg(isApplicant ? "Please enter your mobile phone number." : "Please enter your ID or Email.");
+      setErrorMsg(isApplicant ? "Mobile number must contain exactly 11 digits." : "Please enter your ID or Email.");
+      return;
+    }
+
+    if (isApplicant && !/^\d{11}$/.test(identifier.trim())) {
+      setErrorMsg("Mobile number must contain exactly 11 digits.");
       return;
     }
 
@@ -145,47 +139,39 @@ export function LoginForm({
 
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      let targetDestination = redirectUrl || config.targetRoute;
-
-      if (isApplicant) {
-        // Retrieve existing application state to decide proper destination
-        let hasSubmittedApp = false;
-        let applicantFullName = "Applicant";
-        try {
-          const stored = localStorage.getItem("cms_applicant_admission_data");
-          if (stored) {
-            const parsed = JSON.parse(stored);
-            if (parsed.status && parsed.status !== "Draft") {
-              hasSubmittedApp = true;
-            }
-            if (parsed.fullName) {
-              applicantFullName = parsed.fullName;
-            }
+    if (isApplicant) {
+      loginApplicant(identifier, password)
+        .then((result) => {
+          login("applicant", {
+            name: result.fullName,
+            phone: result.phone,
+            email: result.email || "",
+          });
+          router.push(getApplicantPortalDestination(result.hasSubmittedApplication));
+        })
+        .catch((err: unknown) => {
+          const code = err instanceof Error ? err.message : "";
+          if (code === "ACCOUNT_NOT_FOUND") {
+            setErrorMsg("No applicant account exists with this phone number. Please register to apply.");
+          } else if (code === "INVALID_PHONE") {
+            setErrorMsg("Mobile number must contain exactly 11 digits.");
+          } else if (code === "INVALID_PASSWORD") {
+            setErrorMsg("Incorrect password. Please try again or contact the admissions office.");
+          } else {
+            setErrorMsg("Unable to sign in. Please try again.");
           }
-        } catch {
-          // ignore
-        }
+        })
+        .finally(() => setIsSubmitting(false));
+      return;
+    }
 
-        login("applicant", {
-          name: applicantFullName !== "Applicant" ? applicantFullName : `Applicant (${identifier})`,
-          phone: identifier,
-          email: identifier.includes("@") ? identifier : undefined,
-        });
-
-        // NEVER redirect to public home page; route to status if submitted or application form if draft
-        if (!redirectUrl || redirectUrl === "/" || redirectUrl === "/login") {
-          targetDestination = hasSubmittedApp ? "/applicant?tab=status" : "/applicant?tab=application";
-        }
-      } else {
-        login(role, {
-          email: identifier.includes("@") ? identifier : `${identifier}@apex.edu.pk`,
-          name: identifier || "Portal User",
-        });
-      }
-
+    setTimeout(() => {
+      login(role, {
+        email: identifier.includes("@") ? identifier : `${identifier}@apex.edu.pk`,
+        name: identifier || "Portal User",
+      });
       setIsSubmitting(false);
-      router.push(targetDestination);
+      router.push(redirectUrl || config.targetRoute);
     }, 500);
   };
 
@@ -226,11 +212,12 @@ export function LoginForm({
               <FormField label={config.identifierLabel} required>
                 <Input
                   type={config.inputType}
+                  inputMode={isApplicant ? "numeric" : "text"}
                   placeholder={config.identifierPlaceholder}
                   value={identifier}
                   onChange={(e) => {
                     if (isApplicant) {
-                      setIdentifier(formatPhoneInput(e.target.value));
+                      setIdentifier(filterPhoneInput(e.target.value));
                     } else {
                       setIdentifier(e.target.value);
                     }
@@ -238,6 +225,7 @@ export function LoginForm({
                   required
                   leftIcon={config.fieldIcon}
                   autoComplete={isApplicant ? "tel" : "username"}
+                  maxLength={isApplicant ? 11 : undefined}
                 />
               </FormField>
               {config.helperNote && (
@@ -301,10 +289,10 @@ export function LoginForm({
               {isApplicant
                 ? "Sign In to Applicant Portal"
                 : role === "admin"
-                ? "Sign In to Admin Console"
-                : role === "teacher"
-                ? "Sign In to Faculty Portal"
-                : "Sign In to Student Portal"}
+                  ? "Sign In to Admin Console"
+                  : role === "teacher"
+                    ? "Sign In to Faculty Portal"
+                    : "Sign In to Student Portal"}
             </Button>
           </form>
 

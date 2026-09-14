@@ -29,6 +29,7 @@ import {
   ShieldCheck,
   Download,
   Check,
+  MapPin,
 } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { FormField } from "@/components/ui/FormField";
@@ -37,104 +38,35 @@ import { Textarea } from "@/components/ui/Textarea";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Alert } from "@/components/ui/Alert";
+import { LoadingState } from "@/components/ui/LoadingState";
+import {
+  DEFAULT_APPLICANT_APPLICATION,
+  getApplication,
+  saveApplication,
+  submitApplication,
+  syncApplicantStatusFromAdmin,
+  type ApplicantApplicationData,
+} from "@/lib/services/admission-service";
 
 // ─── TYPES & LOCAL STORAGE KEYS ──────────────────────────────────────────────
 const APPLICATION_STORAGE_KEY = "cms_applicant_admission_data";
 
-interface ApplicationData {
-  appId?: string;
-  status: "Draft" | "Submitted" | "Under Review" | "Merit Qualified" | "Admitted";
-  submittedAt?: string;
+type ApplicationData = ApplicantApplicationData;
 
-  // Step 1: Personal Info
-  fullName: string;
-  fatherName: string;
-  motherName: string;
-  dob: string;
-  gender: string;
-  idType: "CNIC" | "B-Form / Juvenile Card";
-  idNumber: string;
-  phone: string;
-  altPhone: string;
-  email: string;
-  nationality: string;
-  religion: string;
-  bloodGroup: string;
-  domicile: string;
-  address: string;
-
-  // Step 2: Academic
-  matricBoard: string;
-  matricRollNo: string;
-  matricYear: string;
-  matricGroup: string;
-  matricTotalMarks: string;
-  matricObtainedMarks: string;
-
-  interStatus: "Awaiting Result" | "Passed" | "Not Applicable (Applying for Inter)";
-  interBoard?: string;
-  interRollNo?: string;
-  interYear?: string;
-  interTotalMarks?: string;
-  interObtainedMarks?: string;
-
-  // Step 3: Program Choice
-  academicLevel: "Intermediate" | "Undergraduate";
-  primaryProgram: string;
-  secondaryProgram: string;
-  preferredShift: string;
-
-  // Step 4: Documents
-  documents: {
-    matricResultCard?: string;
-    cnicOrBForm?: string;
-    guardianCnic?: string;
-    photo?: string;
-  };
-
-  undertakingAgreed: boolean;
-}
-
-const DEFAULT_APP_DATA: ApplicationData = {
-  status: "Draft",
-  fullName: "",
-  fatherName: "",
-  motherName: "",
-  dob: "",
-  gender: "Male",
-  idType: "B-Form / Juvenile Card",
-  idNumber: "",
-  phone: "",
-  altPhone: "",
-  email: "",
-  nationality: "Pakistani",
-  religion: "Islam",
-  bloodGroup: "",
-  domicile: "Kasur",
-  address: "",
-
-  matricBoard: "BISE Lahore",
-  matricRollNo: "",
-  matricYear: "2024",
-  matricGroup: "Science (Biology)",
-  matricTotalMarks: "1100",
-  matricObtainedMarks: "",
-
-  interStatus: "Not Applicable (Applying for Inter)",
-
-  academicLevel: "Intermediate",
-  primaryProgram: "ICS (Computer Science)",
-  secondaryProgram: "FSc Pre-Engineering",
-  preferredShift: "Morning",
-
-  documents: {},
-  undertakingAgreed: false,
-};
+const DEFAULT_APP_DATA: ApplicationData = DEFAULT_APPLICANT_APPLICATION;
 
 export default function ApplicantDashboardPage() {
   return (
     <ProtectedRoute allowedRoles={["applicant"]}>
-      <ApplicantDashboardContent />
+      <Suspense
+        fallback={
+          <div className="min-h-screen flex items-center justify-center bg-background-secondary">
+            <LoadingState label="Loading applicant portal..." />
+          </div>
+        }
+      >
+        <ApplicantDashboardContent />
+      </Suspense>
     </ProtectedRoute>
   );
 }
@@ -165,32 +97,37 @@ function ApplicantDashboardContent() {
 
   // Load persisted application data or prefill user details
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(APPLICATION_STORAGE_KEY);
-      if (stored) {
-        setAppData(JSON.parse(stored));
-      } else if (user) {
-        setAppData((prev) => ({
-          ...prev,
-          fullName: user.name || "",
-          email: user.email && !user.email.endsWith("@apex.edu.pk") ? user.email : "",
-          phone: user.phone || "",
-        }));
-      }
-    } catch {
-      // ignore parsing error
-    }
+    let cancelled = false;
+    getApplication()
+      .then((stored) => syncApplicantStatusFromAdmin(stored))
+      .then((stored) => {
+        if (cancelled) return;
+        if (stored) {
+          setAppData(stored);
+          return;
+        }
+        if (user) {
+          setAppData((prev) => ({
+            ...prev,
+            fullName: user.name || "",
+            email: user.email && !user.email.endsWith("@apex.edu.pk") ? user.email : "",
+            phone: user.phone || "",
+          }));
+        }
+      })
+      .catch(() => {
+        // Prototype storage is best-effort.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   // Save progress helper
   const saveProgress = (newData: Partial<ApplicationData>) => {
     const updated = { ...appData, ...newData };
     setAppData(updated);
-    try {
-      localStorage.setItem(APPLICATION_STORAGE_KEY, JSON.stringify(updated));
-    } catch {
-      // ignore
-    }
+    void saveApplication(newData, appData);
   };
 
   const handleSaveDraft = () => {
@@ -219,8 +156,8 @@ function ApplicantDashboardContent() {
       if (!appData.idNumber.trim()) {
         errors.idNumber = `Please enter a valid ${appData.idType} number.`;
       }
-      if (!appData.phone.trim()) {
-        errors.phone = "Applicant phone number is required.";
+      if (!appData.phone.trim() || !/^\d{11}$/.test(appData.phone.trim())) {
+        errors.phone = "Mobile number must contain exactly 11 digits.";
       }
       if (!appData.nationality.trim()) {
         errors.nationality = "Nationality is required.";
@@ -236,8 +173,8 @@ function ApplicantDashboardContent() {
         errors.address = "Please enter your full permanent postal address.";
       }
     } else if (step === 3) {
-      if (!appData.altPhone.trim()) {
-        errors.altPhone = "Father/Guardian phone number is required.";
+      if (!appData.altPhone.trim() || !/^\d{11}$/.test(appData.altPhone.trim())) {
+        errors.altPhone = "Mobile number must contain exactly 11 digits.";
       }
     } else if (step === 4) {
       if (!appData.matricBoard.trim()) {
@@ -328,32 +265,26 @@ function ApplicantDashboardContent() {
 
   // Submit Application
   const handleSubmitApplication = () => {
-    // Validate final step
-    const { valid, errors } = validateStep(6);
+    const { valid } = validateStep(6);
     if (!appData.undertakingAgreed) {
       setStepErrorMessage("You must agree to the undertaking declaration before submitting.");
       return;
     }
+    if (!valid) {
+      setStepErrorMessage("Please complete required documents before submitting.");
+      return;
+    }
 
-    const generatedId = `APP-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-    const finalData: ApplicationData = {
-      ...appData,
-      appId: appData.appId || generatedId,
-      status: "Submitted",
-      submittedAt: new Date().toLocaleDateString("en-PK", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      }),
-    };
-    saveProgress(finalData);
-    setActiveTab("status");
-    setSaveToast("Application submitted successfully!");
-    setTimeout(() => setSaveToast(null), 4000);
+    void submitApplication(appData).then((finalData) => {
+      setAppData(finalData);
+      setActiveTab("status");
+      setSaveToast("Application submitted successfully! Admissions can now review it.");
+      setTimeout(() => setSaveToast(null), 4000);
+    });
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background-secondary text-text-primary">
+    <div className="min-h-screen flex flex-col overflow-x-hidden bg-background-secondary text-text-primary">
 
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
       <header className="bg-primary-dark text-white border-b border-primary/30 sticky top-0 z-40 shadow-md">
@@ -361,12 +292,12 @@ function ApplicantDashboardContent() {
           <div className="h-16 flex items-center justify-between gap-4">
 
             {/* Left: Logo & Brand */}
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-3">
               <div className="w-9 h-9 bg-accent-gold flex items-center justify-center text-primary-dark font-extrabold shadow-sm shrink-0">
                 <GraduationCap className="w-5 h-5" />
               </div>
-              <div>
-                <h1 className="text-sm font-extrabold tracking-tight uppercase leading-none text-white">
+              <div className="min-w-0">
+                <h1 className="truncate text-sm font-extrabold tracking-tight uppercase leading-none text-white">
                   {MOCK_COLLEGE.name}
                 </h1>
                 <p className="text-[10px] text-white/70 tracking-widest font-semibold uppercase mt-0.5">
@@ -390,7 +321,7 @@ function ApplicantDashboardContent() {
 
               <Link
                 href="/"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-white/90 hover:text-white hover:bg-white/10 transition-colors border border-white/20"
+                className="inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap px-3 text-xs text-white/90 hover:text-white hover:bg-white/10 transition-colors border border-white/20"
               >
                 <Home className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Back to Home</span>
@@ -401,7 +332,7 @@ function ApplicantDashboardContent() {
                   logout();
                   router.push("/login");
                 }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-rose-200 hover:text-white hover:bg-rose-600/30 transition-colors border border-rose-400/30"
+                className="inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap px-3 text-xs text-rose-200 hover:text-white hover:bg-rose-600/30 transition-colors border border-rose-400/30"
               >
                 <LogOut className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Logout</span>
@@ -426,7 +357,9 @@ function ApplicantDashboardContent() {
                 </h2>
                 <Badge
                   variant={
-                    appData.status === "Submitted" || appData.status === "Under Review"
+                    appData.status === "Rejected"
+                      ? "danger"
+                      : appData.status === "Submitted" || appData.status === "Under Review" || appData.status === "Admitted" || appData.status === "Merit Qualified"
                       ? "success"
                       : "warning"
                   }
@@ -481,7 +414,7 @@ function ApplicantDashboardContent() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as typeof activeTab)}
-                  className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 ${
+                  className={`flex min-h-11 items-center gap-2 px-4 text-xs font-bold whitespace-nowrap transition-all border-b-2 ${
                     isActive
                       ? "border-primary text-primary bg-primary-light/40"
                       : "border-transparent text-text-secondary hover:text-text-primary hover:bg-background-secondary"
@@ -532,7 +465,7 @@ function ApplicantDashboardContent() {
                     <button
                       onClick={() => handleStepChange(s.step)}
                       aria-current={isCurrent ? "step" : undefined}
-                      className={`group flex min-w-0 flex-1 flex-col items-center gap-1 text-center transition-all ${
+                      className={`group flex min-w-0 flex-1 min-h-11 flex-col items-center justify-center gap-1 text-center transition-all ${
                         isCurrent
                           ? "text-primary"
                           : isDone
@@ -557,7 +490,7 @@ function ApplicantDashboardContent() {
                   );
                 })}
               </div>
-              <div className="mt-3 flex items-center justify-between border-t border-border pt-3 sm:hidden">
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3 sm:hidden">
                 <span className="text-xs font-bold text-text-primary">{String(formStep).padStart(2, "0")} {[
                   "Personal", "Address", "Guardian", "Education", "Program", "Documents", "Review",
                 ][formStep - 1]}</span>
@@ -696,11 +629,39 @@ function ApplicantDashboardContent() {
                     <FormField label="Applicant Phone Number" required error={stepErrors.phone}>
                       <Input
                         type="tel"
-                        placeholder="+92 300 1234567"
+                        inputMode="numeric"
+                        maxLength={11}
+                        placeholder="03001234567"
                         value={appData.phone}
                         onChange={(e) => {
-                          saveProgress({ phone: e.target.value });
+                          const filtered = e.target.value.replace(/\D/g, "").slice(0, 11);
+                          saveProgress({ phone: filtered });
                           if (stepErrors.phone) setStepErrors({ ...stepErrors, phone: "" });
+                        }}
+                        disabled={appData.status !== "Draft"}
+                      />
+                    </FormField>
+
+                    {/* Alternate Phone */}
+                    <FormField
+                      label={
+                        <span className="flex items-center gap-2">
+                          Alternate Phone Number
+                          <span className="text-[10px] font-bold text-text-muted bg-background-secondary border border-border px-1.5 py-0.5">
+                            Optional
+                          </span>
+                        </span>
+                      }
+                    >
+                      <Input
+                        type="tel"
+                        inputMode="numeric"
+                        maxLength={11}
+                        placeholder="03001234567"
+                        value={appData.altPhone}
+                        onChange={(e) => {
+                          const filtered = e.target.value.replace(/\D/g, "").slice(0, 11);
+                          saveProgress({ altPhone: filtered });
                         }}
                         disabled={appData.status !== "Draft"}
                       />
@@ -837,10 +798,13 @@ function ApplicantDashboardContent() {
                     <FormField label="Father / Guardian Phone" required error={stepErrors.altPhone}>
                       <Input
                         type="tel"
-                        placeholder="+92 301 9876543"
+                        inputMode="numeric"
+                        maxLength={11}
+                        placeholder="03001234567"
                         value={appData.altPhone}
                         onChange={(e) => {
-                          saveProgress({ altPhone: e.target.value });
+                          const filtered = e.target.value.replace(/\D/g, "").slice(0, 11);
+                          saveProgress({ altPhone: filtered });
                           if (stepErrors.altPhone) setStepErrors({ ...stepErrors, altPhone: "" });
                         }}
                         disabled={appData.status !== "Draft"}
@@ -1042,12 +1006,12 @@ function ApplicantDashboardContent() {
 
                     {/* Academic Level */}
                     <FormField label="Academic Level" required error={stepErrors.academicLevel} className="sm:col-span-2">
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <button
                           type="button"
                           onClick={() => saveProgress({ academicLevel: "Intermediate" })}
                           disabled={appData.status !== "Draft"}
-                          className={`p-4 text-left border transition-all ${
+                          className={`min-h-20 p-4 text-left border transition-all ${
                             appData.academicLevel === "Intermediate"
                               ? "border-primary bg-primary-light/50 font-bold"
                               : "border-border hover:border-text-muted"
@@ -1061,7 +1025,7 @@ function ApplicantDashboardContent() {
                           type="button"
                           onClick={() => saveProgress({ academicLevel: "Undergraduate" })}
                           disabled={appData.status !== "Draft"}
-                          className={`p-4 text-left border transition-all ${
+                          className={`min-h-20 p-4 text-left border transition-all ${
                             appData.academicLevel === "Undergraduate"
                               ? "border-primary bg-primary-light/50 font-bold"
                               : "border-border hover:border-text-muted"
@@ -1162,9 +1126,9 @@ function ApplicantDashboardContent() {
                       const isUploaded = !!appData.documents[doc.key as keyof typeof appData.documents];
                       const hasError = !!stepErrors[doc.key];
                       return (
-                        <div key={doc.key} className={`p-5 border space-y-3 ${hasError ? "border-rose-500 bg-rose-50/50" : "border-border bg-background-secondary"}`}>
-                          <div className="flex items-start justify-between">
-                            <div>
+                        <div key={doc.key} className={`min-w-0 p-5 border space-y-3 ${hasError ? "border-rose-500 bg-rose-50/50" : "border-border bg-background-secondary"}`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
                               <h4 className="text-xs font-bold text-text-primary">
                                 {doc.title} {doc.required && <span className="text-rose-500">*</span>}
                               </h4>
@@ -1186,7 +1150,7 @@ function ApplicantDashboardContent() {
                           )}
 
                           {appData.status === "Draft" && (
-                            <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 bg-white border border-border hover:border-primary text-xs font-semibold text-text-primary transition-colors w-full justify-center">
+                            <label className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 border border-border bg-white px-3 text-center text-xs font-semibold text-text-primary transition-colors hover:border-primary">
                               <Upload className="w-3.5 h-3.5 text-primary" />
                               <span>{isUploaded ? "Replace File" : "Choose File to Upload"}</span>
                               <input
@@ -1301,11 +1265,11 @@ function ApplicantDashboardContent() {
               )}
 
               {/* CARD FOOTER NAVIGATION */}
-              <div className="px-6 py-4 bg-background-secondary border-t border-border flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3 px-4 py-4 bg-background-secondary border-t border-border sm:px-6">
                 <button
                   onClick={() => handleStepChange(formStep - 1)}
                   disabled={formStep === 1}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-text-secondary hover:text-text-primary disabled:opacity-40"
+                  className="inline-flex min-h-11 items-center gap-1.5 text-xs font-bold text-text-secondary hover:text-text-primary disabled:opacity-40"
                 >
                   <ChevronLeft className="w-4 h-4" />
                   <span>Previous Step</span>
@@ -1318,7 +1282,7 @@ function ApplicantDashboardContent() {
                 <button
                   onClick={() => handleStepChange(formStep + 1)}
                   disabled={formStep === 7}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary-dark disabled:opacity-40"
+                  className="inline-flex min-h-11 items-center gap-1.5 text-xs font-bold text-primary hover:text-primary-dark disabled:opacity-40"
                 >
                   <span>Save & Continue</span>
                   <ChevronRight className="w-4 h-4" />
@@ -1335,7 +1299,12 @@ function ApplicantDashboardContent() {
         {/* ========================================================================= */}
         {activeTab === "status" && (
           <div className="portal-fade-up space-y-8">
-            
+            {appData.status === "Rejected" && (
+              <Alert variant="error" title="Application Not Accepted" className="rounded-none">
+                This application was reviewed and not accepted for the current admission cycle. Contact the admissions office if you need guidance on next steps.
+              </Alert>
+            )}
+
             <div className="bg-white border border-border p-6 sm:p-8 space-y-6 shadow-md">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-6">
                 <div>

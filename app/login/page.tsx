@@ -6,8 +6,8 @@ export default function GeneralLoginPage() {
     <LoginForm
       role="applicant"
       title="Applicant Portal Sign In"
-      subtitle="Sign in to your Superior Colleges applicant account to track application status and submit credentials."
-      redirectUrl="/applicant"
+      subtitle="Sign in with your registered mobile number and password to continue your admission application. You will not be sent to the public homepage."
+      redirectUrl="/applicant?tab=application"
     />
   );
 }

@@ -62,8 +62,9 @@ export function PortalSwitcher() {
     if (pathname.startsWith("/student")) return "student";
     if (pathname.startsWith("/teacher")) return "teacher";
     if (pathname.startsWith("/admin")) return "admin";
-    if (pathname === "/login") return "applicant";
-    if (pathname === "/register") return "applicant";
+    if (pathname.startsWith("/applicant") || pathname === "/login" || pathname === "/register") {
+      return "applicant";
+    }
     return "public";
   };
 

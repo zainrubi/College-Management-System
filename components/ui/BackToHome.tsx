@@ -14,7 +14,7 @@ export function BackToHome({ className, variant = "link" }: BackToHomeProps) {
       <Link
         href="/"
         className={cn(
-          "inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold text-text-primary bg-background-secondary hover:bg-primary-light transition-colors shadow-xs",
+          "inline-flex min-h-11 items-center gap-2 px-3.5 rounded-lg text-xs font-semibold text-text-primary bg-background-secondary hover:bg-primary-light transition-colors shadow-xs",
           className
         )}
       >

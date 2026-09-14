@@ -11,6 +11,11 @@ import { Alert } from "@/components/ui/Alert";
 import { BackToHome } from "@/components/ui/BackToHome";
 import { MOCK_COLLEGE } from "@/lib/mock-data";
 import {
+  registerApplicant,
+  saveApplication,
+  DEFAULT_APPLICANT_APPLICATION,
+} from "@/lib/services/admission-service";
+import {
   Lock,
   Mail,
   Phone,
@@ -24,94 +29,19 @@ import {
   X,
 } from "lucide-react";
 
-// ─── Pakistan phone format helpers ───────────────────────────────────────────
-
-/**
- * Normalises a typed phone string into a canonical "+92 3XX XXXXXXX" form.
- * Strips spaces, dashes, parentheses first, then attempts to match
- * the local variant (03xxxxxxxxx) or the international variant (+923xxxxxxxxx).
- */
+/** Normalises a typed phone string by stripping non-digits and limiting to 11 digits */
 function normalizePKPhone(raw: string): string {
-  const stripped = raw.replace(/[\s\-().]/g, "");
-  // Local format: 03XXXXXXXXX  (11 digits starting with 03)
-  if (/^03\d{9}$/.test(stripped)) {
-    return `+92 ${stripped.slice(1, 4)} ${stripped.slice(4)}`;
-  }
-  // International +92: +923XXXXXXXXX  (13 chars)
-  if (/^\+923\d{9}$/.test(stripped)) {
-    return `+92 ${stripped.slice(3, 6)} ${stripped.slice(6)}`;
-  }
-  // Already formatted "+92 3XX XXXXXXX"
-  if (/^\+92 3\d{2} \d{7}$/.test(raw.trim())) {
-    return raw.trim();
-  }
-  return raw; // return as-is if unrecognisable (validation will catch it)
+  return raw.replace(/\D/g, "").slice(0, 11);
 }
 
-/** Returns true if the phone resolves to a valid PK mobile number. */
+/** Returns true if the phone contains exactly 11 digits */
 function isValidPKPhone(raw: string): boolean {
-  const stripped = raw.replace(/[\s\-().]/g, "");
-  return (
-    /^03\d{9}$/.test(stripped) ||
-    /^\+923\d{9}$/.test(stripped)
-  );
+  return /^\d{11}$/.test(raw.replace(/\D/g, ""));
 }
 
-/** Format display as user types: insert spaces for readability. */
-function formatPhoneInput(value: string): string {
-  // Strip everything except digits and leading +
-  let digits = value.replace(/[^\d+]/g, "");
-  // If user typed local (0…), keep leading 0
-  if (digits.startsWith("0")) {
-    // 0 3XX XXXXXXX
-    if (digits.length <= 4) return digits;
-    if (digits.length <= 7) return `${digits.slice(0, 4)} ${digits.slice(4)}`;
-    return `${digits.slice(0, 4)} ${digits.slice(4, 11)}`;
-  }
-  // If user typed +92…
-  if (digits.startsWith("+92") || digits.startsWith("92")) {
-    digits = digits.startsWith("+92") ? digits : `+${digits}`;
-    if (digits.length <= 4) return digits;
-    if (digits.length <= 7) return `${digits.slice(0, 4)} ${digits.slice(4)}`;
-    return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7, 14)}`;
-  }
-  return value;
-}
-
-// ─── localStorage duplicate-check prototype helper ───────────────────────────
-const REGISTERED_PHONES_KEY = "cms_registered_phones";
-
-function isPhoneAlreadyRegistered(normalizedPhone: string): boolean {
-  try {
-    const stored = localStorage.getItem(REGISTERED_PHONES_KEY);
-    if (stored) {
-      const phones: string[] = JSON.parse(stored);
-      if (phones.includes(normalizedPhone)) return true;
-    }
-    const authStored = localStorage.getItem("cms_demo_auth_user");
-    if (authStored) {
-      const user = JSON.parse(authStored) as { phone?: string };
-      if (user.phone && normalizePKPhone(user.phone) === normalizedPhone) {
-        return true;
-      }
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-function registerPhone(normalizedPhone: string): void {
-  try {
-    const stored = localStorage.getItem(REGISTERED_PHONES_KEY);
-    const phones: string[] = stored ? JSON.parse(stored) : [];
-    if (!phones.includes(normalizedPhone)) {
-      phones.push(normalizedPhone);
-      localStorage.setItem(REGISTERED_PHONES_KEY, JSON.stringify(phones));
-    }
-  } catch {
-    // ignore
-  }
+/** Filter non-numeric characters and limit to 11 digits while typing */
+function filterPhoneInput(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 11);
 }
 
 // ─── Password strength meter ──────────────────────────────────────────────────
@@ -132,19 +62,19 @@ export default function ApplicantRegisterPage() {
   const router = useRouter();
   const { login } = useAuth();
 
-  const [fullName, setFullName]         = useState("");
-  const [phone, setPhone]               = useState("");
-  const [email, setEmail]               = useState("");
-  const [password, setPassword]         = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm]   = useState(false);
-  const [error, setError]               = useState("");
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [error, setError] = useState("");
   const [duplicatePhone, setDuplicatePhone] = useState(false);
   const [duplicateAnimKey, setDuplicateAnimKey] = useState(0);
-  const [fieldErrors, setFieldErrors]   = useState<Record<string, string>>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [success, setSuccess]           = useState(false);
+  const [success, setSuccess] = useState(false);
   const phoneInputRef = useRef<HTMLInputElement>(null);
 
   const strength = getPasswordStrength(password);
@@ -158,7 +88,7 @@ export default function ApplicantRegisterPage() {
         break;
       case "phone":
         errs.phone = value && !isValidPKPhone(value)
-          ? "Enter a valid Pakistan mobile number, e.g. 0312 3456789 or +92 312 3456789."
+          ? "Mobile number must contain exactly 11 digits."
           : "";
         break;
       case "email":
@@ -194,7 +124,7 @@ export default function ApplicantRegisterPage() {
       return;
     }
     if (!isValidPKPhone(phone)) {
-      clearDuplicateAndSetError("Please enter a valid Pakistan mobile number (e.g. 0312 3456789).");
+      clearDuplicateAndSetError("Mobile number must contain exactly 11 digits.");
       return;
     }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -212,28 +142,44 @@ export default function ApplicantRegisterPage() {
 
     const normalizedPhone = normalizePKPhone(phone);
 
-    // Duplicate phone: never create a second account
-    if (isPhoneAlreadyRegistered(normalizedPhone)) {
-      setError("");
-      setDuplicatePhone(true);
-      setDuplicateAnimKey((k) => k + 1);
-      return;
-    }
-
     setIsSubmitting(true);
 
-    // Simulate async registration (replace with real API call later)
-    setTimeout(() => {
-      registerPhone(normalizedPhone);
-      login("applicant", {
-        name: fullName.trim(),
-        email: email || undefined,
-        phone: normalizedPhone,
+    registerApplicant({
+      fullName: fullName.trim(),
+      phone: normalizedPhone,
+      email: email || undefined,
+      password,
+    })
+      .then(() =>
+        saveApplication(
+          {
+            fullName: fullName.trim(),
+            phone: normalizedPhone,
+            email: email || "",
+            status: "Draft",
+          },
+          DEFAULT_APPLICANT_APPLICATION,
+        ),
+      )
+      .then(() => {
+        login("applicant", {
+          name: fullName.trim(),
+          email: email || "",
+          phone: normalizedPhone,
+        });
+        setIsSubmitting(false);
+        setSuccess(true);
+        setTimeout(() => router.push("/applicant?tab=application"), 900);
+      })
+      .catch((err: unknown) => {
+        setIsSubmitting(false);
+        if (err instanceof Error && err.message === "PHONE_ALREADY_REGISTERED") {
+          setDuplicatePhone(true);
+          setDuplicateAnimKey((k) => k + 1);
+          return;
+        }
+        setError("Unable to create your applicant account. Please try again.");
       });
-      setIsSubmitting(false);
-      setSuccess(true);
-      setTimeout(() => router.push("/admissions"), 900);
-    }, 700);
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -297,7 +243,7 @@ export default function ApplicantRegisterPage() {
                   <div>
                     <p className="text-sm font-bold">Account created successfully!</p>
                     <p className="text-xs mt-0.5 text-emerald-700">
-                      Redirecting you to your Applicant Portal…
+                      Opening your admission application…
                     </p>
                   </div>
                 </div>
@@ -344,22 +290,26 @@ export default function ApplicantRegisterPage() {
                         ref={phoneInputRef}
                         id="reg-phone"
                         type="tel"
-                        placeholder="0312 3456789 or +92 312 3456789"
+                        inputMode="numeric"
+                        placeholder="03001234567"
                         value={phone}
                         onChange={(e) => {
-                          const formatted = formatPhoneInput(e.target.value);
+                          const formatted = filterPhoneInput(e.target.value);
                           setPhone(formatted);
                           if (duplicatePhone) setDuplicatePhone(false);
+                          if (fieldErrors.phone) {
+                            validateField("phone", formatted);
+                          }
                         }}
                         onBlur={(e) => validateField("phone", e.target.value)}
                         required
                         leftIcon={<Phone className="w-4 h-4" />}
                         autoComplete="tel"
-                        maxLength={16}
+                        maxLength={11}
                       />
                     </FormField>
                     <p className="text-[11px] text-text-muted pl-1">
-                      Pakistan mobile number (Jazzcash, Telenor, Ufone, Zong, Warid).
+                      11-digit mobile number (digits only, e.g. 03001234567).
                       This will be your <span className="font-semibold text-primary">login ID</span>.
                     </p>
                   </div>
@@ -444,17 +394,15 @@ export default function ApplicantRegisterPage() {
                           {[1, 2, 3].map((bar) => (
                             <div
                               key={bar}
-                              className={`h-1 flex-1 rounded-full transition-all duration-300 ${
-                                strength.level >= bar ? strength.color : "bg-border"
-                              }`}
+                              className={`h-1 flex-1 rounded-full transition-all duration-300 ${strength.level >= bar ? strength.color : "bg-border"
+                                }`}
                             />
                           ))}
                         </div>
-                        <p className={`text-[11px] font-semibold ${
-                          strength.level === 3 ? "text-emerald-600"
-                          : strength.level === 2 ? "text-amber-600"
-                          : "text-rose-600"
-                        }`}>
+                        <p className={`text-[11px] font-semibold ${strength.level === 3 ? "text-emerald-600"
+                            : strength.level === 2 ? "text-amber-600"
+                              : "text-rose-600"
+                          }`}>
                           {strength.label}
                           {strength.level === 1 && " — use letters, numbers & symbols"}
                         </p>
