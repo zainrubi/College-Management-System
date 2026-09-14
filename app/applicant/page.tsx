@@ -55,6 +55,15 @@ type ApplicationData = ApplicantApplicationData;
 
 const DEFAULT_APP_DATA: ApplicationData = DEFAULT_APPLICANT_APPLICATION;
 
+const FORM_STEPS = [
+  { step: 1, title: "Personal", fullTitle: "Personal Information", description: "Identity & personal details" },
+  { step: 2, title: "Contact & Address", fullTitle: "Contact & Address", description: "Phone, email & address" },
+  { step: 3, title: "Guardian", fullTitle: "Parent / Guardian", description: "Emergency contact" },
+  { step: 4, title: "Academic", fullTitle: "Academic Information", description: "Educational history" },
+  { step: 5, title: "Preferences", fullTitle: "Program & Preferences", description: "Discipline & shift" },
+  { step: 6, title: "Review & Submit", fullTitle: "Documents & Review", description: "Verification & submit" },
+];
+
 export default function ApplicantDashboardPage() {
   return (
     <ProtectedRoute allowedRoles={["applicant"]}>
@@ -144,20 +153,11 @@ function ApplicantDashboardContent() {
       if (!appData.fullName.trim() || appData.fullName.trim().length < 3) {
         errors.fullName = "Please enter your full name (at least 3 characters).";
       }
-      if (!appData.fatherName.trim() || appData.fatherName.trim().length < 3) {
-        errors.fatherName = "Please enter your father's full name.";
-      }
-      if (!appData.motherName.trim() || appData.motherName.trim().length < 3) {
-        errors.motherName = "Please enter your mother's full name.";
-      }
       if (!appData.dob) {
         errors.dob = "Date of birth is required.";
       }
       if (!appData.idNumber.trim()) {
         errors.idNumber = `Please enter a valid ${appData.idType} number.`;
-      }
-      if (!appData.phone.trim() || !/^\d{11}$/.test(appData.phone.trim())) {
-        errors.phone = "Mobile number must contain exactly 11 digits.";
       }
       if (!appData.nationality.trim()) {
         errors.nationality = "Nationality is required.";
@@ -166,6 +166,9 @@ function ApplicantDashboardContent() {
         errors.religion = "Religion is required.";
       }
     } else if (step === 2) {
+      if (!appData.phone.trim() || !/^\d{11}$/.test(appData.phone.trim())) {
+        errors.phone = "Mobile number must contain exactly 11 digits.";
+      }
       if (!appData.domicile.trim()) {
         errors.domicile = "Domicile district is required.";
       }
@@ -173,6 +176,12 @@ function ApplicantDashboardContent() {
         errors.address = "Please enter your full permanent postal address.";
       }
     } else if (step === 3) {
+      if (!appData.fatherName.trim() || appData.fatherName.trim().length < 3) {
+        errors.fatherName = "Please enter your father's full name.";
+      }
+      if (!appData.motherName.trim() || appData.motherName.trim().length < 3) {
+        errors.motherName = "Please enter your mother's full name.";
+      }
       if (!appData.altPhone.trim() || !/^\d{11}$/.test(appData.altPhone.trim())) {
         errors.altPhone = "Mobile number must contain exactly 11 digits.";
       }
@@ -234,6 +243,7 @@ function ApplicantDashboardContent() {
   };
 
   const handleStepChange = (targetStep: number) => {
+    if (targetStep < 1 || targetStep > 6) return;
     if (targetStep > formStep + 1) return;
 
     // If moving backwards or staying on current step, allow freely
@@ -265,13 +275,24 @@ function ApplicantDashboardContent() {
 
   // Submit Application
   const handleSubmitApplication = () => {
-    const { valid } = validateStep(6);
+    for (let s = 1; s <= 6; s++) {
+      const { valid, errors } = validateStep(s);
+      if (!valid) {
+        setStepErrors(errors);
+        setStepErrorMessage(
+          s === 6
+            ? "Please upload all required documents before submitting."
+            : `Please complete required fields in Step ${s} before submitting.`
+        );
+        setFormStep(s);
+        window.scrollTo({ top: 260, behavior: "smooth" });
+        return;
+      }
+    }
+
     if (!appData.undertakingAgreed) {
       setStepErrorMessage("You must agree to the undertaking declaration before submitting.");
-      return;
-    }
-    if (!valid) {
-      setStepErrorMessage("Please complete required documents before submitting.");
+      window.scrollTo({ top: 260, behavior: "smooth" });
       return;
     }
 
@@ -446,55 +467,58 @@ function ApplicantDashboardContent() {
         {activeTab === "application" && (
           <div className="space-y-6">
 
-            {/* Seven-step progress navigator */}
+            {/* Six-step progress navigator */}
             <div className="bg-white border border-border p-4 sm:p-5 shadow-xs">
               <div className="flex items-center justify-between gap-1 sm:gap-2">
-                {[
-                  { step: 1, title: "Personal", description: "Your identity" },
-                  { step: 2, title: "Address", description: "Where you live" },
-                  { step: 3, title: "Guardian", description: "Emergency contact" },
-                  { step: 4, title: "Education", description: "Academic record" },
-                  { step: 5, title: "Program", description: "Your preference" },
-                  { step: 6, title: "Documents", description: "Proof and files" },
-                  { step: 7, title: "Review", description: "Submit application" },
-                ].map((s) => {
+                {FORM_STEPS.map((s) => {
                   const isDone = formStep > s.step;
                   const isCurrent = formStep === s.step;
                   return (
                     <React.Fragment key={s.step}>
-                    <button
-                      onClick={() => handleStepChange(s.step)}
-                      aria-current={isCurrent ? "step" : undefined}
-                      className={`group flex min-w-0 flex-1 min-h-11 flex-col items-center justify-center gap-1 text-center transition-all ${
-                        isCurrent
-                          ? "text-primary"
-                          : isDone
-                          ? "text-emerald-700"
-                          : "text-text-muted hover:text-text-secondary"
-                      }`}
-                    >
-                      <span className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-extrabold transition-all duration-300 ${
-                        isCurrent
-                          ? "border-primary bg-primary text-white shadow-sm scale-110"
-                          : isDone
-                          ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                          : "border-border bg-background-secondary"
-                      }`}>
-                        {isDone ? <Check className="w-3.5 h-3.5" /> : String(s.step).padStart(2, "0")}
-                      </span>
-                      <span className="hidden text-[11px] font-bold sm:block">{s.title}</span>
-                      <span className="sr-only">{s.description}</span>
-                    </button>
-                    {s.step < 7 && <span className={`h-px flex-1 ${formStep > s.step ? "bg-emerald-300" : "bg-border"}`} aria-hidden="true" />}
+                      <button
+                        onClick={() => handleStepChange(s.step)}
+                        aria-current={isCurrent ? "step" : undefined}
+                        className={`group flex min-w-0 flex-1 min-h-11 flex-col items-center justify-center gap-1 text-center transition-all ${
+                          isCurrent
+                            ? "text-primary"
+                            : isDone
+                            ? "text-emerald-700"
+                            : "text-text-muted hover:text-text-secondary"
+                        }`}
+                      >
+                        <span
+                          className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-extrabold transition-all duration-300 ${
+                            isCurrent
+                              ? "border-primary bg-primary text-white shadow-sm scale-110"
+                              : isDone
+                              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                              : "border-border bg-background-secondary"
+                          }`}
+                        >
+                          {isDone ? <Check className="w-3.5 h-3.5" /> : String(s.step).padStart(2, "0")}
+                        </span>
+                        <span className="hidden text-[11px] font-bold sm:block truncate max-w-full px-1">
+                          {s.title}
+                        </span>
+                        <span className="sr-only">{s.description}</span>
+                      </button>
+                      {s.step < 6 && (
+                        <span
+                          className={`h-px flex-1 ${formStep > s.step ? "bg-emerald-300" : "bg-border"}`}
+                          aria-hidden="true"
+                        />
+                      )}
                     </React.Fragment>
                   );
                 })}
               </div>
               <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3 sm:hidden">
-                <span className="text-xs font-bold text-text-primary">{String(formStep).padStart(2, "0")} {[
-                  "Personal", "Address", "Guardian", "Education", "Program", "Documents", "Review",
-                ][formStep - 1]}</span>
-                <span className="text-[11px] font-semibold text-text-muted">Step {formStep} of 7 · {7 - formStep} remaining</span>
+                <span className="text-xs font-bold text-text-primary">
+                  {String(formStep).padStart(2, "0")} {FORM_STEPS[formStep - 1]?.fullTitle}
+                </span>
+                <span className="text-[11px] font-semibold text-text-muted">
+                  Step {formStep} of 6 · {6 - formStep} remaining
+                </span>
               </div>
             </div>
 
@@ -540,34 +564,6 @@ function ApplicantDashboardContent() {
                         onChange={(e) => {
                           saveProgress({ fullName: e.target.value });
                           if (stepErrors.fullName) setStepErrors({ ...stepErrors, fullName: "" });
-                        }}
-                        disabled={appData.status !== "Draft"}
-                      />
-                    </FormField>
-
-                    {/* Father's Name */}
-                    <FormField label="Father's Full Name" required error={stepErrors.fatherName}>
-                      <Input
-                        type="text"
-                        placeholder="e.g. Tariq Mahmood Khan"
-                        value={appData.fatherName}
-                        onChange={(e) => {
-                          saveProgress({ fatherName: e.target.value });
-                          if (stepErrors.fatherName) setStepErrors({ ...stepErrors, fatherName: "" });
-                        }}
-                        disabled={appData.status !== "Draft"}
-                      />
-                    </FormField>
-
-                    {/* Mother's Name */}
-                    <FormField label="Mother's Full Name" required error={stepErrors.motherName}>
-                      <Input
-                        type="text"
-                        placeholder="e.g. Parveen Akhtar"
-                        value={appData.motherName}
-                        onChange={(e) => {
-                          saveProgress({ motherName: e.target.value });
-                          if (stepErrors.motherName) setStepErrors({ ...stepErrors, motherName: "" });
                         }}
                         disabled={appData.status !== "Draft"}
                       />
@@ -621,68 +617,6 @@ function ApplicantDashboardContent() {
                           saveProgress({ idNumber: e.target.value });
                           if (stepErrors.idNumber) setStepErrors({ ...stepErrors, idNumber: "" });
                         }}
-                        disabled={appData.status !== "Draft"}
-                      />
-                    </FormField>
-
-                    {/* Applicant Primary Phone */}
-                    <FormField label="Applicant Phone Number" required error={stepErrors.phone}>
-                      <Input
-                        type="tel"
-                        inputMode="numeric"
-                        maxLength={11}
-                        placeholder="03001234567"
-                        value={appData.phone}
-                        onChange={(e) => {
-                          const filtered = e.target.value.replace(/\D/g, "").slice(0, 11);
-                          saveProgress({ phone: filtered });
-                          if (stepErrors.phone) setStepErrors({ ...stepErrors, phone: "" });
-                        }}
-                        disabled={appData.status !== "Draft"}
-                      />
-                    </FormField>
-
-                    {/* Alternate Phone */}
-                    <FormField
-                      label={
-                        <span className="flex items-center gap-2">
-                          Alternate Phone Number
-                          <span className="text-[10px] font-bold text-text-muted bg-background-secondary border border-border px-1.5 py-0.5">
-                            Optional
-                          </span>
-                        </span>
-                      }
-                    >
-                      <Input
-                        type="tel"
-                        inputMode="numeric"
-                        maxLength={11}
-                        placeholder="03001234567"
-                        value={appData.altPhone}
-                        onChange={(e) => {
-                          const filtered = e.target.value.replace(/\D/g, "").slice(0, 11);
-                          saveProgress({ altPhone: filtered });
-                        }}
-                        disabled={appData.status !== "Draft"}
-                      />
-                    </FormField>
-
-                    {/* Email (Optional) */}
-                    <FormField
-                      label={
-                        <span className="flex items-center gap-2">
-                          Email Address
-                          <span className="text-[10px] font-bold text-text-muted bg-background-secondary border border-border px-1.5 py-0.5">
-                            Optional
-                          </span>
-                        </span>
-                      }
-                    >
-                      <Input
-                        type="email"
-                        placeholder="applicant@gmail.com (optional)"
-                        value={appData.email}
-                        onChange={(e) => saveProgress({ email: e.target.value })}
                         disabled={appData.status !== "Draft"}
                       />
                     </FormField>
@@ -747,55 +681,152 @@ function ApplicantDashboardContent() {
                 </div>
               )}
 
-              {/* ── STEP 2: ADDRESS ──────────────────────────────────────────────── */}
+              {/* ── STEP 2: CONTACT & ADDRESS ────────────────────────────────────── */}
               {formStep === 2 && (
                 <div className="portal-step-in p-6 sm:p-8 space-y-6">
                   <div className="border-b border-border pb-4">
                     <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
                       <MapPin className="w-5 h-5 text-primary" />
-                      Step 2: Address
+                      Step 2: Contact & Address
                     </h3>
-                    <p className="text-xs text-text-secondary mt-1">Tell us where you currently live and your official domicile district.</p>
+                    <p className="text-xs text-text-secondary mt-1">
+                      Provide your active mobile number, optional email, and current permanent residential address.
+                    </p>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <FormField label="Domicile District" required error={stepErrors.domicile}>
-                      <Select value={appData.domicile} onChange={(e) => saveProgress({ domicile: e.target.value })} disabled={appData.status !== "Draft"}>
-                        <option value="Kasur">Kasur</option>
-                        <option value="Lahore">Lahore</option>
-                        <option value="Okara">Okara</option>
-                        <option value="Pakpattan">Pakpattan</option>
-                        <option value="Sahiwal">Sahiwal</option>
-                        <option value="Other">Other District</option>
-                      </Select>
+
+                  {/* Contact Numbers & Email */}
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-primary">
+                      Contact Information
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+                      {/* Applicant Primary Phone */}
+                      <FormField label="Applicant Mobile Number" required error={stepErrors.phone}>
+                        <Input
+                          type="tel"
+                          inputMode="numeric"
+                          maxLength={11}
+                          placeholder="03001234567"
+                          value={appData.phone}
+                          onChange={(e) => {
+                            const filtered = e.target.value.replace(/\D/g, "").slice(0, 11);
+                            saveProgress({ phone: filtered });
+                            if (stepErrors.phone) setStepErrors({ ...stepErrors, phone: "" });
+                          }}
+                          disabled={appData.status !== "Draft"}
+                        />
+                      </FormField>
+
+                      {/* Email (Optional) */}
+                      <FormField
+                        label={
+                          <span className="flex items-center gap-2">
+                            Email Address
+                            <span className="text-[10px] font-bold text-text-muted bg-background-secondary border border-border px-1.5 py-0.5">
+                              Optional
+                            </span>
+                          </span>
+                        }
+                      >
+                        <Input
+                          type="email"
+                          placeholder="applicant@gmail.com (optional)"
+                          value={appData.email}
+                          onChange={(e) => saveProgress({ email: e.target.value })}
+                          disabled={appData.status !== "Draft"}
+                        />
+                      </FormField>
+
+                    </div>
+                  </div>
+
+                  {/* Residential Address & Domicile */}
+                  <div className="space-y-4 border-t border-border pt-6">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-primary">
+                      Residential Address & Domicile
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      <FormField label="Domicile District" required error={stepErrors.domicile}>
+                        <Select
+                          value={appData.domicile}
+                          onChange={(e) => {
+                            saveProgress({ domicile: e.target.value });
+                            if (stepErrors.domicile) setStepErrors({ ...stepErrors, domicile: "" });
+                          }}
+                          disabled={appData.status !== "Draft"}
+                        >
+                          <option value="Kasur">Kasur</option>
+                          <option value="Lahore">Lahore</option>
+                          <option value="Okara">Okara</option>
+                          <option value="Pakpattan">Pakpattan</option>
+                          <option value="Sahiwal">Sahiwal</option>
+                          <option value="Other">Other District</option>
+                        </Select>
+                      </FormField>
+                    </div>
+
+                    <FormField label="Permanent Postal Address" required error={stepErrors.address}>
+                      <Textarea
+                        placeholder="House/Street address, Tehsil Kanganpur, District Kasur..."
+                        value={appData.address}
+                        onChange={(e) => {
+                          saveProgress({ address: e.target.value });
+                          if (stepErrors.address) setStepErrors({ ...stepErrors, address: "" });
+                        }}
+                        disabled={appData.status !== "Draft"}
+                        rows={4}
+                      />
                     </FormField>
                   </div>
-                  <FormField label="Permanent Postal Address" required error={stepErrors.address}>
-                    <Textarea
-                      placeholder="House/Street address, Tehsil Kanganpur, District Kasur..."
-                      value={appData.address}
-                      onChange={(e) => {
-                        saveProgress({ address: e.target.value });
-                        if (stepErrors.address) setStepErrors({ ...stepErrors, address: "" });
-                      }}
-                      disabled={appData.status !== "Draft"}
-                      rows={4}
-                    />
-                  </FormField>
                 </div>
               )}
 
-              {/* ── STEP 3: GUARDIAN ─────────────────────────────────────────────── */}
+              {/* ── STEP 3: PARENT / GUARDIAN INFORMATION ─────────────────────────── */}
               {formStep === 3 && (
                 <div className="portal-step-in p-6 sm:p-8 space-y-6">
                   <div className="border-b border-border pb-4">
                     <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
                       <ShieldCheck className="w-5 h-5 text-primary" />
-                      Step 3: Guardian
+                      Step 3: Parent / Guardian Information
                     </h3>
-                    <p className="text-xs text-text-secondary mt-1">Provide a reliable parent or guardian contact for admission communication.</p>
+                    <p className="text-xs text-text-secondary mt-1">
+                      Provide parent or legal guardian details for emergency contact and official college records.
+                    </p>
                   </div>
-                  <div className="max-w-xl">
-                    <FormField label="Father / Guardian Phone" required error={stepErrors.altPhone}>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+                    {/* Father's Name */}
+                    <FormField label="Father's Full Name" required error={stepErrors.fatherName}>
+                      <Input
+                        type="text"
+                        placeholder="e.g. Tariq Mahmood Khan"
+                        value={appData.fatherName}
+                        onChange={(e) => {
+                          saveProgress({ fatherName: e.target.value });
+                          if (stepErrors.fatherName) setStepErrors({ ...stepErrors, fatherName: "" });
+                        }}
+                        disabled={appData.status !== "Draft"}
+                      />
+                    </FormField>
+
+                    {/* Mother's Name */}
+                    <FormField label="Mother's Full Name" required error={stepErrors.motherName}>
+                      <Input
+                        type="text"
+                        placeholder="e.g. Parveen Akhtar"
+                        value={appData.motherName}
+                        onChange={(e) => {
+                          saveProgress({ motherName: e.target.value });
+                          if (stepErrors.motherName) setStepErrors({ ...stepErrors, motherName: "" });
+                        }}
+                        disabled={appData.status !== "Draft"}
+                      />
+                    </FormField>
+
+                    {/* Father / Guardian Phone */}
+                    <FormField label="Father / Guardian Mobile Number" required error={stepErrors.altPhone} className="sm:col-span-2">
                       <Input
                         type="tel"
                         inputMode="numeric"
@@ -810,6 +841,7 @@ function ApplicantDashboardContent() {
                         disabled={appData.status !== "Draft"}
                       />
                     </FormField>
+
                   </div>
                 </div>
               )}
@@ -820,7 +852,7 @@ function ApplicantDashboardContent() {
                   <div className="border-b border-border pb-4">
                     <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
                       <Award className="w-5 h-5 text-primary" />
-                      Step 4: Education
+                      Step 4: Academic Information
                     </h3>
                     <p className="text-xs text-text-secondary mt-1">
                       Enter your Matriculation / Secondary Education credentials and result marks.
@@ -989,13 +1021,13 @@ function ApplicantDashboardContent() {
                 </div>
               )}
 
-              {/* ── STEP 5: PROGRAM SELECTION ───────────────────────────────────── */}
+              {/* ── STEP 5: PROGRAM & PREFERENCES ───────────────────────────────── */}
               {formStep === 5 && (
                 <div className="portal-step-in p-6 sm:p-8 space-y-6">
                   <div className="border-b border-border pb-4">
                     <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
                       <GraduationCap className="w-5 h-5 text-primary" />
-                      Step 5: Program & Discipline Selection
+                      Step 5: Program & Campus Preferences
                     </h3>
                     <p className="text-xs text-text-secondary mt-1">
                       Choose your intended academic discipline and program preferences for Fall 2026.
@@ -1102,133 +1134,136 @@ function ApplicantDashboardContent() {
                 </div>
               )}
 
-              {/* ── STEP 6: DOCUMENT UPLOADS ────────────────────────────────────── */}
+              {/* ── STEP 6: DOCUMENTS & REVIEW ──────────────────────────────────── */}
               {formStep === 6 && (
-                <div className="portal-step-in p-6 sm:p-8 space-y-6">
+                <div className="portal-step-in p-6 sm:p-8 space-y-8">
                   <div className="border-b border-border pb-4">
                     <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
-                      <Upload className="w-5 h-5 text-primary" />
-                      Step 6: Upload Verification Documents
+                      <FolderCheck className="w-5 h-5 text-primary" />
+                      Step 6: Documents & Review
                     </h3>
                     <p className="text-xs text-text-secondary mt-1">
-                      Attach scanned copies (JPG, PNG, PDF up to 5MB each). Original credentials will be verified during campus enrollment.
+                      Upload required verification documents and review your application details before final submission.
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-
-                    {[
-                      { key: "matricResultCard", title: "Matriculation Result Card / Certificate", desc: "Clear scan of BISE SSC result card", required: true },
-                      { key: "cnicOrBForm", title: "CNIC or B-Form Document", desc: "Front & back scan of NADRA card / B-Form", required: true },
-                      { key: "guardianCnic", title: "Father / Guardian CNIC", desc: "NADRA CNIC of parent or guardian", required: false },
-                      { key: "photo", title: "Passport Size Photograph", desc: "Recent color photo with blue background", required: false },
-                    ].map((doc) => {
-                      const isUploaded = !!appData.documents[doc.key as keyof typeof appData.documents];
-                      const hasError = !!stepErrors[doc.key];
-                      return (
-                        <div key={doc.key} className={`min-w-0 p-5 border space-y-3 ${hasError ? "border-rose-500 bg-rose-50/50" : "border-border bg-background-secondary"}`}>
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <h4 className="text-xs font-bold text-text-primary">
-                                {doc.title} {doc.required && <span className="text-rose-500">*</span>}
-                              </h4>
-                              <p className="text-[11px] text-text-secondary">{doc.desc}</p>
+                  {/* Section A: Document Uploads */}
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-primary">
+                      Required Verification Documents
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      {[
+                        { key: "matricResultCard", title: "Matriculation Result Card / Certificate", desc: "Clear scan of BISE SSC result card", required: true },
+                        { key: "cnicOrBForm", title: "CNIC or B-Form Document", desc: "Front & back scan of NADRA card / B-Form", required: true },
+                        { key: "guardianCnic", title: "Father / Guardian CNIC", desc: "NADRA CNIC of parent or guardian", required: false },
+                        { key: "photo", title: "Passport Size Photograph", desc: "Recent color photo with blue background", required: false },
+                      ].map((doc) => {
+                        const isUploaded = !!appData.documents[doc.key as keyof typeof appData.documents];
+                        const hasError = !!stepErrors[doc.key];
+                        return (
+                          <div key={doc.key} className={`min-w-0 p-5 border space-y-3 ${hasError ? "border-rose-500 bg-rose-50/50" : "border-border bg-background-secondary"}`}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <h4 className="text-xs font-bold text-text-primary">
+                                  {doc.title} {doc.required && <span className="text-rose-500">*</span>}
+                                </h4>
+                                <p className="text-[11px] text-text-secondary">{doc.desc}</p>
+                              </div>
+                              {isUploaded ? (
+                                <span className="portal-success text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 border border-emerald-300">
+                                  Uploaded
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 border border-amber-300">
+                                  Pending
+                                </span>
+                              )}
                             </div>
-                            {isUploaded ? (
-                              <span className="portal-success text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 border border-emerald-300">
-                                Uploaded
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 border border-amber-300">
-                                Pending
-                              </span>
+
+                            {hasError && (
+                              <p className="text-xs font-medium text-rose-600">{stepErrors[doc.key]}</p>
+                            )}
+
+                            {appData.status === "Draft" && (
+                              <label className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 border border-border bg-white px-3 text-center text-xs font-semibold text-text-primary transition-colors hover:border-primary">
+                                <Upload className="w-3.5 h-3.5 text-primary" />
+                                <span>{isUploaded ? "Replace File" : "Choose File to Upload"}</span>
+                                <input
+                                  type="file"
+                                  accept="image/*,.pdf"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    if (e.target.files?.[0]) {
+                                      const newDocs = {
+                                        ...appData.documents,
+                                        [doc.key]: e.target.files[0].name,
+                                      };
+                                      saveProgress({ documents: newDocs });
+                                      if (stepErrors[doc.key]) {
+                                        const nextErr = { ...stepErrors };
+                                        delete nextErr[doc.key];
+                                        setStepErrors(nextErr);
+                                      }
+                                    }
+                                  }}
+                                />
+                              </label>
                             )}
                           </div>
-
-                          {hasError && (
-                            <p className="text-xs font-medium text-rose-600">{stepErrors[doc.key]}</p>
-                          )}
-
-                          {appData.status === "Draft" && (
-                            <label className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 border border-border bg-white px-3 text-center text-xs font-semibold text-text-primary transition-colors hover:border-primary">
-                              <Upload className="w-3.5 h-3.5 text-primary" />
-                              <span>{isUploaded ? "Replace File" : "Choose File to Upload"}</span>
-                              <input
-                                type="file"
-                                accept="image/*,.pdf"
-                                className="hidden"
-                                onChange={(e) => {
-                                  if (e.target.files?.[0]) {
-                                    const newDocs = {
-                                      ...appData.documents,
-                                      [doc.key]: e.target.files[0].name,
-                                    };
-                                    saveProgress({ documents: newDocs });
-                                    if (stepErrors[doc.key]) {
-                                      const nextErr = { ...stepErrors };
-                                      delete nextErr[doc.key];
-                                      setStepErrors(nextErr);
-                                    }
-                                  }
-                                }}
-                              />
-                            </label>
-                          )}
-                        </div>
-                      );
-                    })}
-
-                  </div>
-                </div>
-              )}
-
-              {/* ── STEP 7: REVIEW & FINAL SUBMISSION ───────────────────────────── */}
-              {formStep === 7 && (
-                <div className="portal-step-in p-6 sm:p-8 space-y-6">
-                  <div className="border-b border-border pb-4">
-                    <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
-                      <ShieldCheck className="w-5 h-5 text-primary" />
-                      Step 7: Review Application & Submit
-                    </h3>
-                    <p className="text-xs text-text-secondary mt-1">
-                      Verify all entries before final submission. Once submitted, your application moves to Merit Evaluation.
-                    </p>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  {/* Summary Box */}
-                  <div className="bg-background-secondary border border-border p-6 space-y-4 text-xs">
-                    <h4 className="font-bold text-primary text-sm uppercase tracking-wider">
+                  {/* Section B: Application Summary Preview */}
+                  <div className="space-y-4 border-t border-border pt-6">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-primary">
                       Application Summary Preview
                     </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-text-secondary">
-                      <div>
-                        <span className="font-semibold text-text-primary block">Applicant Name</span>
-                        {appData.fullName || "Not specified"}
-                      </div>
-                      <div>
-                        <span className="font-semibold text-text-primary block">Father's Name</span>
-                        {appData.fatherName || "Not specified"}
-                      </div>
-                      <div>
-                        <span className="font-semibold text-text-primary block">Identity Doc</span>
-                        {appData.idType}: {appData.idNumber || "Not specified"}
-                      </div>
-                      <div>
-                        <span className="font-semibold text-text-primary block">Primary Discipline</span>
-                        {appData.primaryProgram} ({appData.academicLevel})
-                      </div>
-                      <div>
-                        <span className="font-semibold text-text-primary block">Matric Marks</span>
-                        {appData.matricObtainedMarks} / {appData.matricTotalMarks} ({appData.matricBoard})
-                      </div>
-                      <div>
-                        <span className="font-semibold text-text-primary block">Contact Phone</span>
-                        {appData.phone || "Not specified"}
+                    <div className="bg-background-secondary border border-border p-6 space-y-4 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-text-secondary">
+                        <div>
+                          <span className="font-semibold text-text-primary block">Applicant Name</span>
+                          {appData.fullName || "Not specified"}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-text-primary block">Father's Name</span>
+                          {appData.fatherName || "Not specified"}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-text-primary block">Identity Doc</span>
+                          {appData.idType}: {appData.idNumber || "Not specified"}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-text-primary block">Contact Mobile</span>
+                          {appData.phone || "Not specified"}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-text-primary block">Guardian Phone</span>
+                          {appData.altPhone || "Not specified"}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-text-primary block">Address & Domicile</span>
+                          {appData.address ? `${appData.address} (${appData.domicile})` : "Not specified"}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-text-primary block">Primary Discipline</span>
+                          {appData.primaryProgram} ({appData.academicLevel})
+                        </div>
+                        <div>
+                          <span className="font-semibold text-text-primary block">Preferred Shift</span>
+                          {appData.preferredShift || "Morning"}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-text-primary block">Matric Marks</span>
+                          {appData.matricObtainedMarks} / {appData.matricTotalMarks} ({appData.matricBoard})
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Undertaking Declaration */}
+                  {/* Section C: Undertaking Declaration */}
                   <div className="p-4 bg-amber-50/60 border border-amber-200 text-xs space-y-3">
                     <label className="flex items-start gap-3 cursor-pointer select-none">
                       <input
@@ -1244,7 +1279,7 @@ function ApplicantDashboardContent() {
                     </label>
                   </div>
 
-                  {/* Submit Button */}
+                  {/* Section D: Final Submission Action */}
                   {appData.status === "Draft" ? (
                     <Button
                       variant="primary"
@@ -1260,7 +1295,6 @@ function ApplicantDashboardContent() {
                       Your application has been submitted and locked for review.
                     </div>
                   )}
-
                 </div>
               )}
 
@@ -1276,17 +1310,22 @@ function ApplicantDashboardContent() {
                 </button>
 
                 <div className="text-xs font-bold text-text-muted">
-                  Step {formStep} of 7
+                  Step {formStep} of 6
                 </div>
 
-                <button
-                  onClick={() => handleStepChange(formStep + 1)}
-                  disabled={formStep === 7}
-                  className="inline-flex min-h-11 items-center gap-1.5 text-xs font-bold text-primary hover:text-primary-dark disabled:opacity-40"
-                >
-                  <span>Save & Continue</span>
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+                {formStep < 6 ? (
+                  <button
+                    onClick={() => handleStepChange(formStep + 1)}
+                    className="inline-flex min-h-11 items-center gap-1.5 text-xs font-bold text-primary hover:text-primary-dark disabled:opacity-40"
+                  >
+                    <span>Save & Continue</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <div className="text-xs font-bold text-text-muted hidden sm:block">
+                    Final Step · Review & Submit
+                  </div>
+                )}
               </div>
 
             </div>
