@@ -5,8 +5,8 @@ export default function GeneralLoginPage() {
   return (
     <LoginForm
       role="applicant"
-      title="Applicant Portal Sign In"
-      subtitle="Sign in with your registered mobile number and password to continue your admission application. You will not be sent to the public homepage."
+      title="Sign In"
+      subtitle="Sign in to continue your admission application and check your application status."
       redirectUrl="/applicant?tab=application"
     />
   );

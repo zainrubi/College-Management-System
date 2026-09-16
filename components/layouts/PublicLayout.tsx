@@ -133,9 +133,9 @@ export function PublicLayout({ children, onNavigateRole }: PublicLayoutProps) {
           </nav>
 
           <div className="hidden sm:flex items-center gap-3">
-            <Link href="/student/login">
+            <Link href="/login">
               <Button variant="outline" size="sm" leftIcon={<LogIn className="w-4 h-4" />}>
-                Student Login
+                Sign In
               </Button>
             </Link>
             <Link href="/register">
@@ -193,14 +193,14 @@ export function PublicLayout({ children, onNavigateRole }: PublicLayoutProps) {
               })}
             </nav>
             <div className="pt-3 border-t border-border flex flex-col gap-2">
-              <Link href="/student/login" onClick={() => setMobileMenuOpen(false)}>
+              <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
                 <Button variant="outline" size="sm" className="w-full">
-                  Student Portal Login
+                  Sign In
                 </Button>
               </Link>
               <Link href="/register" onClick={() => setMobileMenuOpen(false)}>
                 <Button variant="primary" size="sm" className="w-full">
-                  Submit Admission Application
+                  Apply Now
                 </Button>
               </Link>
             </div>

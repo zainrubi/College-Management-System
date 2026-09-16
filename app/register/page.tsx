@@ -467,16 +467,22 @@ export default function ApplicantRegisterPage() {
             </div>
 
             {/* Card footer */}
-            <div className="px-6 sm:px-8 py-5 bg-background-secondary border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-text-secondary">
-              <p>
-                Already registered?{" "}
-                <Link href="/login" className="text-primary font-semibold hover:underline">
-                  Sign in to your portal →
+            <div className="px-6 sm:px-8 py-5 bg-background-secondary border-t border-border">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="w-full sm:flex-1 space-y-2">
+                  <p className="text-xs text-text-secondary text-center sm:text-left">
+                    Already have an account?
+                  </p>
+                  <Link href="/login" className="block w-full sm:w-auto">
+                    <Button variant="outline" size="sm" className="w-full sm:w-auto rounded-none">
+                      Sign In
+                    </Button>
+                  </Link>
+                </div>
+                <Link href="/admissions" className="text-xs text-text-muted hover:text-primary transition-colors whitespace-nowrap">
+                  View admission info
                 </Link>
-              </p>
-              <Link href="/admissions" className="text-text-muted hover:text-primary transition-colors">
-                View admission info
-              </Link>
+              </div>
             </div>
           </div>
 

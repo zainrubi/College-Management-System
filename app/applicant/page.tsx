@@ -23,6 +23,8 @@ import {
   Save,
   Send,
   Phone,
+  LayoutDashboard,
+  Bell,
   Mail,
   Building2,
   Award,
@@ -86,8 +88,8 @@ function ApplicantDashboardContent() {
   const { user, logout } = useAuth();
 
   const [activeTab, setActiveTab] = useState<
-    "application" | "status" | "personal" | "documents" | "help"
-  >("application");
+    "dashboard" | "application" | "status" | "personal" | "documents" | "help"
+  >("dashboard");
 
   const [formStep, setFormStep] = useState<number>(1);
   const [appData, setAppData] = useState<ApplicationData>(DEFAULT_APP_DATA);
@@ -95,9 +97,12 @@ function ApplicantDashboardContent() {
 
   useEffect(() => {
     const requestedTab = searchParams.get("tab");
-    if (requestedTab === "application" || requestedTab === "status" || requestedTab === "personal" || requestedTab === "documents" || requestedTab === "help") {
-      setActiveTab(requestedTab);
+    const validTabs = ["dashboard", "application", "status", "personal", "documents", "help"] as const;
+    if (requestedTab && validTabs.includes(requestedTab as (typeof validTabs)[number])) {
+      setActiveTab(requestedTab as typeof activeTab);
+      return;
     }
+    setActiveTab("dashboard");
   }, [searchParams]);
 
   // Step validation state
@@ -304,6 +309,96 @@ function ApplicantDashboardContent() {
     });
   };
 
+  const hasApplication = Boolean(
+    appData.appId ||
+      appData.fullName.trim() ||
+      appData.idNumber.trim() ||
+      appData.phone.trim() ||
+      appData.email.trim() ||
+      appData.primaryProgram.trim() ||
+      appData.matricRollNo.trim()
+  );
+
+  const dashboardProgress = (() => {
+    if (!hasApplication) return 0;
+    switch (appData.status) {
+      case "Draft":
+        return 25;
+      case "Submitted":
+        return 55;
+      case "Under Review":
+        return 75;
+      case "More Information Required":
+        return 68;
+      case "On Hold":
+        return 62;
+      case "Accepted":
+      case "Admitted":
+      case "Merit Qualified":
+        return 100;
+      case "Rejected":
+        return 88;
+      default:
+        return 50;
+    }
+  })();
+
+  const dashboardStatusText = (() => {
+    if (!hasApplication) return "No application started";
+    if (appData.status === "Draft") return "Draft in progress";
+    if (appData.status === "Submitted") return "Submitted and pending review";
+    if (appData.status === "Under Review") return "Under review by admissions";
+    if (appData.status === "More Information Required") return "Updated information required";
+    if (appData.status === "On Hold") return "Application on hold";
+    if (appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified") return "Offer ready for next step";
+    if (appData.status === "Rejected") return "Application not accepted";
+    return appData.status;
+  })();
+
+  const dashboardNotifications = [
+    {
+      title: "Application status",
+      detail:
+        appData.status === "Draft"
+          ? "Your application is still being prepared. Please complete and submit it to move forward."
+          : appData.status === "Submitted"
+            ? "Your application has been submitted successfully and is awaiting review by the admissions office."
+            : appData.status === "Under Review"
+              ? "The admissions team is reviewing your academic records and supporting details."
+              : appData.status === "More Information Required"
+                ? "The college has requested additional details before continuing with your application."
+                : appData.status === "On Hold"
+                  ? "Your application is currently on hold. Please review the message below for the next step."
+                  : appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified"
+                    ? "Your application has progressed to an offer or admission decision stage."
+                    : appData.status === "Rejected"
+                      ? "This application is not continuing in the current cycle. Please review the reason provided."
+                      : "Application updates will appear here once the admissions office processes your file.",
+    },
+    {
+      title: "Next action",
+      detail:
+        !hasApplication
+          ? "Start your application to begin the admissions process."
+          : appData.status === "Draft"
+            ? "Complete the remaining admission steps and submit the form when ready."
+            : appData.status === "Submitted"
+              ? "Track your application and wait for the admissions review cycle to complete."
+              : appData.status === "More Information Required"
+                ? "Update the form with the required information and resubmit the relevant fields."
+                : appData.status === "On Hold"
+                  ? "Review the hold reason and follow the admissions instruction provided."
+                  : appData.status === "Accepted" || appData.status === "Admitted"
+                    ? "Prepare for the future student enrollment steps and admissions instructions."
+                    : "Review your application status and follow the current admissions guidance.",
+    },
+  ];
+
+  const openApplicationFlow = (target: "application" | "status") => {
+    setActiveTab(target);
+    router.push(`/applicant?tab=${target}`);
+  };
+
   return (
     <div className="min-h-screen flex flex-col overflow-x-hidden bg-background-secondary text-text-primary">
 
@@ -381,8 +476,8 @@ function ApplicantDashboardContent() {
                     appData.status === "Rejected"
                       ? "danger"
                       : appData.status === "Submitted" || appData.status === "Under Review" || appData.status === "Admitted" || appData.status === "Merit Qualified"
-                      ? "success"
-                      : "warning"
+                        ? "success"
+                        : "warning"
                   }
                   className="text-[10px] uppercase font-bold"
                 >
@@ -423,6 +518,7 @@ function ApplicantDashboardContent() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex space-x-1 sm:space-x-4 overflow-x-auto no-scrollbar py-2">
             {[
+              { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
               { id: "application", label: "Application Form", icon: FileText },
               { id: "status", label: "Application Status", icon: Clock },
               { id: "personal", label: "Personal Information", icon: User },
@@ -435,11 +531,10 @@ function ApplicantDashboardContent() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as typeof activeTab)}
-                  className={`flex min-h-11 items-center gap-2 px-4 text-xs font-bold whitespace-nowrap transition-all border-b-2 ${
-                    isActive
+                  className={`flex min-h-11 items-center gap-2 px-4 text-xs font-bold whitespace-nowrap transition-all border-b-2 ${isActive
                       ? "border-primary text-primary bg-primary-light/40"
                       : "border-transparent text-text-secondary hover:text-text-primary hover:bg-background-secondary"
-                  }`}
+                    }`}
                 >
                   <Icon className={`w-4 h-4 ${isActive ? "text-primary" : "text-text-muted"}`} />
                   <span>{tab.label}</span>
@@ -461,6 +556,196 @@ function ApplicantDashboardContent() {
       {/* ── BODY CONTENT ─────────────────────────────────────────────────── */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
+        {activeTab === "dashboard" && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_0.9fr] gap-6">
+              <section className="bg-white border border-border p-6 sm:p-8 shadow-sm">
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-5">
+                  <div>
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-[0.24em] text-accent-gold">Applicant Dashboard</span>
+                    <h3 className="mt-3 text-2xl sm:text-3xl font-extrabold text-text-primary">
+                      Welcome back, {user?.name || appData.fullName || "Applicant"}
+                    </h3>
+                    <p className="mt-2 text-sm text-text-secondary">
+                      {dashboardStatusText}. {hasApplication ? "Your admissions record is active and ready for review." : "Start your admission application to begin the process."}
+                    </p>
+                  </div>
+                  <span className={`inline-flex items-center px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border ${
+                    appData.status === "Rejected"
+                      ? "border-rose-300 bg-rose-50 text-rose-700"
+                      : appData.status === "Submitted" || appData.status === "Under Review" || appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified"
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                        : appData.status === "More Information Required"
+                          ? "border-violet-300 bg-violet-50 text-violet-700"
+                          : appData.status === "On Hold"
+                            ? "border-orange-300 bg-orange-50 text-orange-700"
+                            : "border-amber-300 bg-amber-50 text-amber-700"
+                  }`}>
+                    {appData.status || "No Application"}
+                  </span>
+                </div>
+
+                <div className="mt-6 flex flex-col sm:flex-row gap-3">
+                  {!hasApplication && (
+                    <button
+                      onClick={() => openApplicationFlow("application")}
+                      className="inline-flex items-center justify-center gap-2 min-h-11 bg-primary text-white px-5 text-xs font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors"
+                    >
+                      Start Application
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  )}
+                  {hasApplication && appData.status === "Draft" && (
+                    <button
+                      onClick={() => openApplicationFlow("application")}
+                      className="inline-flex items-center justify-center gap-2 min-h-11 bg-primary text-white px-5 text-xs font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors"
+                    >
+                      Continue Application
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  )}
+                  {(appData.status === "Submitted" || appData.status === "Under Review" || appData.status === "More Information Required" || appData.status === "On Hold" || appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified" || appData.status === "Rejected") && (
+                    <button
+                      onClick={() => openApplicationFlow("status")}
+                      className="inline-flex items-center justify-center gap-2 min-h-11 bg-primary text-white px-5 text-xs font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors"
+                    >
+                      {appData.status === "More Information Required" ? "Update Application" : appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified" ? "View Next Steps" : "View Application"}
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </section>
+
+              <aside className="bg-white border border-border p-6 shadow-sm">
+                <div className="flex items-center justify-between border-b border-border pb-4">
+                  <h4 className="text-sm font-extrabold uppercase tracking-wide text-text-primary">Account Information</h4>
+                  <div className="w-8 h-8 bg-primary-light border border-primary/20 flex items-center justify-center text-primary">
+                    <User className="w-4 h-4" />
+                  </div>
+                </div>
+
+                <div className="mt-5 space-y-4 text-xs">
+                  <div>
+                    <p className="text-text-muted uppercase tracking-wider font-bold">Applicant Name</p>
+                    <p className="mt-1 text-sm font-bold text-text-primary">{user?.name || appData.fullName || "Not provided"}</p>
+                  </div>
+                  <div>
+                    <p className="text-text-muted uppercase tracking-wider font-bold">Mobile Number</p>
+                    <p className="mt-1 text-sm font-bold text-text-primary font-mono">{user?.phone || appData.phone || "Not provided"}</p>
+                  </div>
+                  <div>
+                    <p className="text-text-muted uppercase tracking-wider font-bold">Email</p>
+                    <p className="mt-1 text-sm font-bold text-text-primary break-all">{user?.email || appData.email || "Not provided"}</p>
+                  </div>
+                </div>
+              </aside>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white border border-border p-5 shadow-sm">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Application Number</p>
+                <p className="mt-2 text-lg font-extrabold text-primary font-mono">{appData.appId || "Not assigned yet"}</p>
+              </div>
+              <div className="bg-white border border-border p-5 shadow-sm">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Status</p>
+                <p className="mt-2 text-lg font-extrabold text-text-primary">{appData.status || "No Application"}</p>
+              </div>
+              <div className="bg-white border border-border p-5 shadow-sm">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Submitted Date</p>
+                <p className="mt-2 text-lg font-extrabold text-text-primary">{appData.submittedAt || "Not submitted"}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-6">
+              <section className="bg-white border border-border p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-3 border-b border-border pb-4">
+                  <h4 className="text-sm font-extrabold uppercase tracking-wide text-text-primary">Application Progress</h4>
+                  <span className="text-xs font-bold text-primary">{dashboardProgress}%</span>
+                </div>
+
+                <div className="mt-5">
+                  <div className="h-2 w-full bg-background-secondary border border-border">
+                    <div className="h-full bg-primary" style={{ width: `${dashboardProgress}%` }} />
+                  </div>
+                  <p className="mt-4 text-xs text-text-secondary">
+                    {hasApplication
+                      ? "Your application record is progressing through the admissions workflow."
+                      : "No application has been created yet. Your progress will update here once you begin."}
+                  </p>
+                </div>
+
+                <div className="mt-6 space-y-3">
+                  {[
+                    "Profile details",
+                    "Academic information",
+                    "Program preference",
+                    "Document verification",
+                    "Admissions review",
+                  ].map((step, index) => {
+                    const isComplete = index < Math.max(1, Math.round(dashboardProgress / 20));
+                    return (
+                      <div key={step} className="flex items-center gap-3 text-xs">
+                        <span className={`w-5 h-5 flex items-center justify-center border ${isComplete ? "bg-primary border-primary text-white" : "border-border bg-background-secondary text-text-muted"}`}>
+                          {isComplete ? <Check className="w-3 h-3" /> : index + 1}
+                        </span>
+                        <span className={isComplete ? "font-bold text-text-primary" : "text-text-secondary"}>{step}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className="bg-white border border-border p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-3 border-b border-border pb-4">
+                  <h4 className="text-sm font-extrabold uppercase tracking-wide text-text-primary">Important Message</h4>
+                  <Bell className="w-4 h-4 text-primary" />
+                </div>
+                <div className="mt-5 space-y-4">
+                  {dashboardNotifications.map((item) => (
+                    <div key={item.title} className="border border-border bg-background-secondary p-4">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted">{item.title}</p>
+                      <p className="mt-2 text-xs text-text-secondary leading-relaxed">{item.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+
+            {hasApplication && (
+              <section className="bg-white border border-border p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-3 border-b border-border pb-4">
+                  <h4 className="text-sm font-extrabold uppercase tracking-wide text-text-primary">Application Summary</h4>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-primary">{appData.status}</span>
+                </div>
+
+                <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                  <div className="border border-border bg-background-secondary p-4">
+                    <p className="text-text-muted uppercase tracking-wider font-bold">Application Number</p>
+                    <p className="mt-2 font-bold text-text-primary break-all">{appData.appId || "Pending"}</p>
+                  </div>
+                  <div className="border border-border bg-background-secondary p-4">
+                    <p className="text-text-muted uppercase tracking-wider font-bold">Program</p>
+                    <p className="mt-2 font-bold text-text-primary">{appData.primaryProgram || "Not selected"}</p>
+                  </div>
+                  <div className="border border-border bg-background-secondary p-4">
+                    <p className="text-text-muted uppercase tracking-wider font-bold">Submitted</p>
+                    <p className="mt-2 font-bold text-text-primary">{appData.submittedAt || "Not submitted"}</p>
+                  </div>
+                  <div className="border border-border bg-background-secondary p-4">
+                    <p className="text-text-muted uppercase tracking-wider font-bold">Action</p>
+                    <button
+                      onClick={() => openApplicationFlow(appData.status === "Draft" ? "application" : "status")}
+                      className="mt-2 text-primary font-bold hover:text-primary-dark"
+                    >
+                      {appData.status === "Draft" ? "Continue" : "View status"}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+
         {/* ========================================================================= */}
         {/* TAB 1: ADMISSION APPLICATION FORM (MULTI-STEP)                            */}
         {/* ========================================================================= */}
@@ -478,22 +763,20 @@ function ApplicantDashboardContent() {
                       <button
                         onClick={() => handleStepChange(s.step)}
                         aria-current={isCurrent ? "step" : undefined}
-                        className={`group flex min-w-0 flex-1 min-h-11 flex-col items-center justify-center gap-1 text-center transition-all ${
-                          isCurrent
+                        className={`group flex min-w-0 flex-1 min-h-11 flex-col items-center justify-center gap-1 text-center transition-all ${isCurrent
                             ? "text-primary"
                             : isDone
-                            ? "text-emerald-700"
-                            : "text-text-muted hover:text-text-secondary"
-                        }`}
+                              ? "text-emerald-700"
+                              : "text-text-muted hover:text-text-secondary"
+                          }`}
                       >
                         <span
-                          className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-extrabold transition-all duration-300 ${
-                            isCurrent
+                          className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-extrabold transition-all duration-300 ${isCurrent
                               ? "border-primary bg-primary text-white shadow-sm scale-110"
                               : isDone
-                              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                              : "border-border bg-background-secondary"
-                          }`}
+                                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                : "border-border bg-background-secondary"
+                            }`}
                         >
                           {isDone ? <Check className="w-3.5 h-3.5" /> : String(s.step).padStart(2, "0")}
                         </span>
@@ -1043,11 +1326,10 @@ function ApplicantDashboardContent() {
                           type="button"
                           onClick={() => saveProgress({ academicLevel: "Intermediate" })}
                           disabled={appData.status !== "Draft"}
-                          className={`min-h-20 p-4 text-left border transition-all ${
-                            appData.academicLevel === "Intermediate"
+                          className={`min-h-20 p-4 text-left border transition-all ${appData.academicLevel === "Intermediate"
                               ? "border-primary bg-primary-light/50 font-bold"
                               : "border-border hover:border-text-muted"
-                          }`}
+                            }`}
                         >
                           <p className="text-sm text-text-primary font-bold">Intermediate (2 Years)</p>
                           <p className="text-xs text-text-secondary mt-0.5">FSc Pre-Medical, Pre-Engg, ICS, I.Com</p>
@@ -1057,11 +1339,10 @@ function ApplicantDashboardContent() {
                           type="button"
                           onClick={() => saveProgress({ academicLevel: "Undergraduate" })}
                           disabled={appData.status !== "Draft"}
-                          className={`min-h-20 p-4 text-left border transition-all ${
-                            appData.academicLevel === "Undergraduate"
+                          className={`min-h-20 p-4 text-left border transition-all ${appData.academicLevel === "Undergraduate"
                               ? "border-primary bg-primary-light/50 font-bold"
                               : "border-border hover:border-text-muted"
-                          }`}
+                            }`}
                         >
                           <p className="text-sm text-text-primary font-bold">Undergraduate (4 Years BS)</p>
                           <p className="text-xs text-text-secondary mt-0.5">BS CS, BS SE, BBA Degrees</p>
@@ -1379,9 +1660,8 @@ function ApplicantDashboardContent() {
                     className="portal-fade-up flex items-start gap-4"
                     style={{ animationDelay: `${idx * 70}ms` }}
                   >
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                      item.done ? "bg-primary text-white" : "bg-background-secondary border border-border text-text-muted"
-                    }`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${item.done ? "bg-primary text-white" : "bg-background-secondary border border-border text-text-muted"
+                      }`}>
                       {item.done ? <Check className="w-4 h-4" /> : idx + 1}
                     </div>
                     <div className="pt-0.5">

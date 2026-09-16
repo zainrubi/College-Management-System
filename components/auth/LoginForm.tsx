@@ -299,12 +299,14 @@ export function LoginForm({
           {/* Role specific registration policy notes */}
           <div className="pt-4 border-t border-slate-100 dark:border-slate-800 text-center text-xs text-slate-500 space-y-2">
             {isApplicant ? (
-              <p>
-                Don&apos;t have an applicant account?{" "}
-                <Link href="/register" className="text-primary font-semibold hover:underline">
-                  Register as Applicant
+              <div className="space-y-2.5">
+                <p className="text-text-secondary">Don&apos;t have an account yet?</p>
+                <Link href="/register" className="block w-full">
+                  <Button variant="outline" className="w-full" size="sm">
+                    Create an account
+                  </Button>
                 </Link>
-              </p>
+              </div>
             ) : (
               <p className="text-[11px] text-slate-400 leading-relaxed">
                 Notice: {role.charAt(0).toUpperCase() + role.slice(1)} accounts are issued and managed by college administration. No public registration available.

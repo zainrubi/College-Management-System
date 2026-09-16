@@ -25,7 +25,16 @@ interface StoredApplicantAccount {
 
 export interface ApplicantApplicationData {
   appId?: string;
-  status: "Draft" | "Submitted" | "Under Review" | "Merit Qualified" | "Admitted" | "Rejected";
+  status:
+    | "Draft"
+    | "Submitted"
+    | "Under Review"
+    | "More Information Required"
+    | "On Hold"
+    | "Merit Qualified"
+    | "Accepted"
+    | "Admitted"
+    | "Rejected";
   submittedAt?: string;
   fullName: string;
   fatherName: string;
@@ -150,8 +159,8 @@ export const DEFAULT_APPLICANT_APPLICATION: ApplicantApplicationData = {
   undertakingAgreed: false,
 };
 
-export function getApplicantPortalDestination(hasSubmittedApplication: boolean): string {
-  return hasSubmittedApplication ? "/applicant?tab=status" : "/applicant?tab=application";
+export function getApplicantPortalDestination(_hasSubmittedApplication: boolean): string {
+  return "/applicant";
 }
 
 export async function registerApplicant(input: ApplicantRegistrationInput): Promise<void> {
@@ -258,12 +267,14 @@ function mapAdminStatusToApplicant(
 ): ApplicantApplicationData["status"] {
   switch (status) {
     case "under_review":
-    case "more_info_required":
-    case "on_hold":
     case "interview_scheduled":
       return "Under Review";
+    case "more_info_required":
+      return "More Information Required";
+    case "on_hold":
+      return "On Hold";
     case "accepted":
-      return "Merit Qualified";
+      return "Accepted";
     case "enrolled":
       return "Admitted";
     case "rejected":
