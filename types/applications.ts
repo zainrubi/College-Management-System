@@ -7,6 +7,7 @@ export type ApplicationStatus =
   | "interview_scheduled"
   | "accepted"
   | "rejected"
+  | "withdrawn"
   | "enrolled";
 
 export interface AcademicRecord {

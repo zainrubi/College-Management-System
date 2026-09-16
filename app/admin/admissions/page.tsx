@@ -35,12 +35,15 @@ import {
   getStoredApplications,
   executeApplicationAction,
   APPLICATION_STATUS_CONFIG,
+  getApplicationLifecycleStatus,
 } from "@/lib/mock-data/applications-data";
 import { ApplicationPreviewModal } from "@/components/admin/admissions/ApplicationPreviewModal";
 
 const PAGE_SIZE = 10;
-type SortField = "applicationNumber" | "applicantName" | "program" | "createdAt" | "status" | "marks";
+type SortField = "applicationNumber" | "applicantName" | "createdAt" | "marks";
 type SortDir = "asc" | "desc";
+
+const normalizeProgramValue = (value: string) => value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 
 export default function AdminAdmissionsPage() {
   const [applications, setApplications] = useState<CompleteApplication[]>([]);
@@ -53,6 +56,17 @@ export default function AdminAdmissionsPage() {
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
   const [filterLevel, setFilterLevel] = useState("all");
+
+  const statusFilterLabels: Record<string, string> = {
+    draft: "draft",
+    submitted: "submitted / pending",
+    under_review: "under review",
+    more_info_required: "more information required",
+    on_hold: "on hold",
+    accepted: "accepted",
+    rejected: "rejected",
+    withdrawn: "withdrawn",
+  };
 
   // Sort
   const [sortField, setSortField] = useState<SortField>("createdAt");
@@ -88,6 +102,10 @@ export default function AdminAdmissionsPage() {
     action: "accept" | "reject" | "request_info" | "put_on_hold",
     data?: { reason?: string; note?: string }
   ) => {
+    if ((action === "accept" || action === "reject" || action === "request_info" || action === "put_on_hold") && !(data?.reason || data?.note)?.trim()) {
+      return;
+    }
+
     let newStatus: ApplicationStatus = "submitted";
     let actionTitle = "Application Updated";
     let note = data?.reason || data?.note;
@@ -122,15 +140,24 @@ export default function AdminAdmissionsPage() {
   // Computed stats
   const stats = useMemo(() => {
     const total = applications.length;
-    const submitted = applications.filter((a) => a.status === "submitted").length;
-    const underReview = applications.filter(
-      (a) => a.status === "under_review" || a.status === "interview_scheduled" || a.status === "more_info_required"
-    ).length;
-    const accepted = applications.filter((a) => a.status === "accepted" || a.status === "enrolled").length;
-    const rejected = applications.filter((a) => a.status === "rejected").length;
-    const onHold = applications.filter((a) => a.status === "on_hold").length;
-    return { total, submitted, underReview, accepted, rejected, onHold };
+    const lifecycleStatuses = applications.map((application) => getApplicationLifecycleStatus(application.status));
+    const count = (status: ApplicationStatus) => lifecycleStatuses.filter((value) => value === status).length;
+    return {
+      total,
+      draft: count("draft"),
+      submitted: count("submitted"),
+      underReview: count("under_review"),
+      moreInfoRequired: count("more_info_required"),
+      onHold: count("on_hold"),
+      accepted: count("accepted"),
+      rejected: count("rejected"),
+      withdrawn: count("withdrawn"),
+    };
   }, [applications]);
+
+  const statusMatchesFilter = (status: ApplicationStatus) => {
+    return filterStatus === "all" || getApplicationLifecycleStatus(status) === filterStatus;
+  };
 
   // Filter -> sort -> paginate
   const filtered = useMemo(() => {
@@ -144,8 +171,10 @@ export default function AdminAdmissionsPage() {
         app.preferences.selectedProgram.toLowerCase().includes(q) ||
         app.personal.cnicBForm.includes(q);
 
-      const matchProgram = filterProgram === "all" || app.preferences.selectedProgram === filterProgram;
-      const matchStatus = filterStatus === "all" || app.status === filterStatus;
+      const matchProgram =
+        filterProgram === "all" ||
+        normalizeProgramValue(app.preferences.selectedProgram) === normalizeProgramValue(filterProgram);
+      const matchStatus = statusMatchesFilter(app.status);
       const matchLevel = filterLevel === "all" || app.preferences.academicLevel === filterLevel;
 
       const appDate = new Date(app.createdAt);
@@ -167,12 +196,8 @@ export default function AdminAdmissionsPage() {
         cmp = marksA - marksB;
       } else if (sortField === "applicantName") {
         cmp = a.personal.fullName.localeCompare(b.personal.fullName);
-      } else if (sortField === "program") {
-        cmp = a.preferences.selectedProgram.localeCompare(b.preferences.selectedProgram);
       } else if (sortField === "applicationNumber") {
         cmp = a.applicationNumber.localeCompare(b.applicationNumber);
-      } else if (sortField === "status") {
-        cmp = a.status.localeCompare(b.status);
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -210,6 +235,11 @@ export default function AdminAdmissionsPage() {
     filterLevel !== "all" ||
     filterDateFrom ||
     filterDateTo;
+
+  const handleSummaryFilter = (status: string) => {
+    setFilterStatus(status);
+    setCurrentPage(1);
+  };
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <ChevronUp className="w-3.5 h-3.5 text-slate-300 ml-1 inline" />;
@@ -259,21 +289,30 @@ export default function AdminAdmissionsPage() {
       />
 
       {/* ── Stats Strip ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6">
         {[
-          { label: "Total Applications", value: stats.total, icon: <Users className="w-5 h-5 text-primary" />, bg: "bg-primary-light/60 border-primary/20" },
-          { label: "Submitted / Pending", value: stats.submitted, icon: <ClipboardList className="w-5 h-5 text-sky-600" />, bg: "bg-sky-50 border-sky-200" },
-          { label: "Under Review / More Info", value: stats.underReview, icon: <Clock className="w-5 h-5 text-amber-600" />, bg: "bg-amber-50 border-amber-200" },
-          { label: "Accepted / Enrolled", value: stats.accepted, icon: <CheckCircle2 className="w-5 h-5 text-emerald-600" />, bg: "bg-emerald-50 border-emerald-200" },
-          { label: "On Hold", value: stats.onHold, icon: <PauseCircle className="w-5 h-5 text-orange-600" />, bg: "bg-orange-50 border-orange-200" },
+          { label: "Total Applications", value: stats.total, statusFilter: "all", icon: <Users className="w-5 h-5 text-primary" />, bg: "bg-primary-light/60 border-primary/20" },
+          { label: "Submitted / Pending", value: stats.submitted, statusFilter: "submitted", icon: <ClipboardList className="w-5 h-5 text-sky-600" />, bg: "bg-sky-50 border-sky-200" },
+          { label: "Under Review", value: stats.underReview, statusFilter: "under_review", icon: <Clock className="w-5 h-5 text-amber-600" />, bg: "bg-amber-50 border-amber-200" },
+          { label: "On Hold", value: stats.onHold, statusFilter: "on_hold", icon: <PauseCircle className="w-5 h-5 text-orange-600" />, bg: "bg-orange-50 border-orange-200" },
+          { label: "Accepted", value: stats.accepted, statusFilter: "accepted", icon: <CheckCircle2 className="w-5 h-5 text-emerald-600" />, bg: "bg-emerald-50 border-emerald-200" },
+          { label: "Rejected", value: stats.rejected, statusFilter: "rejected", icon: <XCircle className="w-5 h-5 text-rose-600" />, bg: "bg-rose-50 border-rose-200" },
         ].map((s) => (
-          <div key={s.label} className={`rounded-xl border p-3.5 sm:p-4 flex items-center gap-3 ${s.bg}`}>
+          <button
+            key={s.label}
+            type="button"
+            onClick={() => handleSummaryFilter(s.statusFilter)}
+            aria-pressed={filterStatus === s.statusFilter}
+            className={`rounded-xl border p-3.5 sm:p-4 flex items-center gap-3 text-left cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-sm ${s.bg} ${
+              filterStatus === s.statusFilter ? "ring-2 ring-primary ring-offset-1 shadow-sm" : ""
+            }`}
+          >
             <div className="shrink-0">{s.icon}</div>
             <div>
               <p className="text-xl sm:text-2xl font-extrabold text-text-primary leading-none">{s.value}</p>
               <p className="text-xs text-text-secondary mt-0.5 font-medium">{s.label}</p>
             </div>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -304,14 +343,14 @@ export default function AdminAdmissionsPage() {
             className="px-3 py-2.5 text-sm rounded-lg border border-border bg-white focus:outline-none focus:border-primary text-text-primary"
           >
             <option value="all">All Statuses</option>
+            <option value="draft">Draft</option>
             <option value="submitted">Submitted / Pending</option>
             <option value="under_review">Under Review</option>
-            <option value="more_info_required">More Info Required</option>
+            <option value="more_info_required">More Information Required</option>
             <option value="on_hold">On Hold</option>
-            <option value="interview_scheduled">Interview Scheduled</option>
             <option value="accepted">Accepted</option>
             <option value="rejected">Rejected</option>
-            <option value="enrolled">Enrolled</option>
+            <option value="withdrawn">Withdrawn</option>
           </select>
 
           <select
@@ -418,14 +457,7 @@ export default function AdminAdmissionsPage() {
                   </span>
                 </th>
                 <th className="px-4 py-3.5 whitespace-nowrap">Phone & CNIC</th>
-                <th
-                  className="px-4 py-3.5 cursor-pointer select-none whitespace-nowrap"
-                  onClick={() => handleSort("program")}
-                >
-                  <span className="inline-flex items-center gap-0.5">
-                    Program <SortIcon field="program" />
-                  </span>
-                </th>
+                <th className="px-4 py-3.5 whitespace-nowrap">Program</th>
                 <th
                   className="px-4 py-3.5 cursor-pointer select-none whitespace-nowrap"
                   onClick={() => handleSort("createdAt")}
@@ -442,14 +474,7 @@ export default function AdminAdmissionsPage() {
                     Marks % <SortIcon field="marks" />
                   </span>
                 </th>
-                <th
-                  className="px-4 py-3.5 cursor-pointer select-none whitespace-nowrap"
-                  onClick={() => handleSort("status")}
-                >
-                  <span className="inline-flex items-center gap-0.5">
-                    Status <SortIcon field="status" />
-                  </span>
-                </th>
+                <th className="px-4 py-3.5 whitespace-nowrap">Status</th>
                 <th className="px-4 py-3.5 text-center whitespace-nowrap">Actions</th>
               </tr>
             </thead>
@@ -460,7 +485,11 @@ export default function AdminAdmissionsPage() {
                   <td colSpan={8} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3 text-text-muted">
                       <Search className="w-10 h-10 opacity-30" />
-                      <p className="text-sm font-semibold">No applications match your filters</p>
+                      <p className="text-sm font-semibold">
+                        {filterStatus === "all"
+                          ? "No applications match your filters"
+                          : `No ${statusFilterLabels[filterStatus] || "applications"} applications found.`}
+                      </p>
                       <button onClick={resetFilters} className="text-xs text-primary hover:underline font-medium">
                         Clear all filters
                       </button>
@@ -469,8 +498,9 @@ export default function AdminAdmissionsPage() {
                 </tr>
               ) : (
                 paginated.map((app) => {
-                  const statusCfg = APPLICATION_STATUS_CONFIG[app.status] || {
-                    label: app.status,
+                  const lifecycleStatus = getApplicationLifecycleStatus(app.status);
+                  const statusCfg = APPLICATION_STATUS_CONFIG[lifecycleStatus] || {
+                    label: lifecycleStatus,
                     badgeClass: "bg-slate-100 text-slate-700",
                   };
                   const primaryAcad = app.academicHistory[0];

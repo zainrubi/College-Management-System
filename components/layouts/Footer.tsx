@@ -77,7 +77,8 @@ export function Footer({ variant = "dashboard", className }: FooterProps) {
     );
   }
 
-  /* ─── Public footer — premium redesign ───────────────────────────── */
+  /* ─── Public footer — premium 
+  #redesign ───────────────────────────── */
   return (
     <footer
       className={cn("relative overflow-hidden bg-[#064E56] text-white", className)}

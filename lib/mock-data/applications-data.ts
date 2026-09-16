@@ -2,6 +2,12 @@ import { CompleteApplication, ApplicationStatus, ApplicationAuditEvent } from "@
 
 export const APPLICATIONS_STORAGE_KEY = "apex_cms_applications_data_v1";
 
+export function getApplicationLifecycleStatus(status: ApplicationStatus): ApplicationStatus {
+  if (status === "interview_scheduled") return "under_review";
+  if (status === "enrolled") return "accepted";
+  return status;
+}
+
 export const INITIAL_COMPLETE_APPLICATIONS: CompleteApplication[] = [
   {
     id: "1",
@@ -1367,6 +1373,14 @@ export const APPLICATION_STATUS_CONFIG: Record<ApplicationStatus, StatusMeta> = 
     bgLight: "bg-rose-50",
     borderLight: "border-rose-200",
     textDark: "text-rose-900",
+  },
+  withdrawn: {
+    label: "Withdrawn",
+    variant: "secondary",
+    badgeClass: "bg-slate-100 text-slate-700 border-slate-300",
+    bgLight: "bg-slate-50",
+    borderLight: "border-slate-200",
+    textDark: "text-slate-800",
   },
   enrolled: {
     label: "Enrolled",

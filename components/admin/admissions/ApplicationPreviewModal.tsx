@@ -26,7 +26,10 @@ import {
   Check,
 } from "lucide-react";
 import { CompleteApplication, ApplicationStatus } from "@/types/applications";
-import { APPLICATION_STATUS_CONFIG } from "@/lib/mock-data/applications-data";
+import {
+  APPLICATION_STATUS_CONFIG,
+  getApplicationLifecycleStatus,
+} from "@/lib/mock-data/applications-data";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 
@@ -62,8 +65,9 @@ export function ApplicationPreviewModal({
 
   if (!isOpen || !application) return null;
 
-  const statusConfig = APPLICATION_STATUS_CONFIG[application.status] || {
-    label: application.status,
+  const lifecycleStatus = getApplicationLifecycleStatus(application.status);
+  const statusConfig = APPLICATION_STATUS_CONFIG[lifecycleStatus] || {
+    label: lifecycleStatus,
     variant: "default",
     badgeClass: "bg-slate-100 text-slate-700",
     bgLight: "bg-slate-50",
@@ -79,11 +83,18 @@ export function ApplicationPreviewModal({
   };
 
   const handleAccept = () => {
+    if (!actionReason.trim()) {
+      setRejectionError("Please provide the acceptance reason.");
+      return;
+    }
+    if (isSubmitting) return;
     if (onPerformAction) {
       setIsSubmitting(true);
-      onPerformAction(application.id, "accept");
+      onPerformAction(application.id, "accept", { reason: actionReason.trim() });
       setIsSubmitting(false);
       setActiveAction("none");
+      setActionReason("");
+      setRejectionError(null);
     }
   };
 
@@ -92,6 +103,7 @@ export function ApplicationPreviewModal({
       setRejectionError("Please provide the reason for rejection.");
       return;
     }
+    if (isSubmitting) return;
     if (onPerformAction) {
       setIsSubmitting(true);
       const fullReason = actionReason.trim()
@@ -106,25 +118,41 @@ export function ApplicationPreviewModal({
   };
 
   const handleRequestInfo = () => {
-    if (!actionReason.trim()) return;
+    if (!actionReason.trim()) {
+      setRejectionError("Please specify the information required from the applicant.");
+      return;
+    }
+    if (isSubmitting) return;
     if (onPerformAction) {
       setIsSubmitting(true);
       onPerformAction(application.id, "request_info", { note: actionReason.trim() });
       setIsSubmitting(false);
       setActiveAction("none");
       setActionReason("");
+      setRejectionError(null);
     }
   };
 
   const handlePutOnHold = () => {
-    if (!actionReason.trim()) return;
+    if (!actionReason.trim()) {
+      setRejectionError("Please provide the hold reason.");
+      return;
+    }
+    if (isSubmitting) return;
     if (onPerformAction) {
       setIsSubmitting(true);
       onPerformAction(application.id, "put_on_hold", { note: actionReason.trim() });
       setIsSubmitting(false);
       setActiveAction("none");
       setActionReason("");
+      setRejectionError(null);
     }
+  };
+
+  const openAction = (action: typeof activeAction) => {
+    setActionReason("");
+    setRejectionError(null);
+    setActiveAction(action);
   };
 
   return (
@@ -235,11 +263,33 @@ export function ApplicationPreviewModal({
                         This will record an acceptance audit event and update the status to <strong>Accepted</strong>.
                       </p>
 
+                      <div className="mt-3">
+                        <label htmlFor="acceptance-reason" className="text-xs font-semibold text-text-primary block mb-1">
+                          Acceptance Reason <span className="text-rose-600">*</span>
+                        </label>
+                        <textarea
+                          id="acceptance-reason"
+                          rows={2}
+                          value={actionReason}
+                          onChange={(e) => {
+                            setActionReason(e.target.value);
+                            if (e.target.value.trim()) setRejectionError(null);
+                          }}
+                          placeholder="e.g. Meets the academic merit and document verification requirements."
+                          className={`w-full text-xs p-3 border rounded-lg bg-background-secondary focus:bg-white focus:outline-none focus:border-primary ${rejectionError ? "border-rose-400" : "border-border"}`}
+                        />
+                        {rejectionError && <p className="text-xs text-rose-600 mt-1">{rejectionError}</p>}
+                      </div>
+
                       <div className="flex items-center justify-end gap-2 mt-4">
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setActiveAction("none")}
+                          onClick={() => {
+                            setActiveAction("none");
+                            setActionReason("");
+                            setRejectionError(null);
+                          }}
                           disabled={isSubmitting}
                         >
                           Cancel
@@ -291,10 +341,13 @@ export function ApplicationPreviewModal({
 
                     <div>
                       <label className="text-xs font-semibold text-text-primary block mb-1">
-                        Specific Notes / Details
+                        Rejection Reason
                       </label>
-                      <input
-                        type="text"
+                      <textarea
+                        rows={2}
+                        id="rejection-reason"
+                        aria-describedby={rejectionError ? "rejection-reason-error" : undefined}
+                        aria-invalid={Boolean(rejectionError)}
                         placeholder="e.g. Scored below 60% threshold for FSc Pre-Medical"
                         value={actionReason}
                         onChange={(e) => {
@@ -303,7 +356,7 @@ export function ApplicationPreviewModal({
                         }}
                         className={`w-full text-xs px-3 py-2 border rounded-lg bg-background-secondary focus:bg-white focus:outline-none focus:border-primary ${rejectionError ? "border-rose-400" : "border-border"}`}
                       />
-                      {rejectionError && <p className="text-xs text-rose-600 mt-1">{rejectionError}</p>}
+                      {rejectionError && <p id="rejection-reason-error" className="text-xs text-rose-600 mt-1">{rejectionError}</p>}
                     </div>
                   </div>
 
@@ -344,13 +397,23 @@ export function ApplicationPreviewModal({
                     Provide instructions for what the applicant needs to upload, fix, or clarify. Status will change to <strong>More Info Required</strong>.
                   </p>
 
+                  <label htmlFor="information-required" className="text-xs font-semibold text-text-primary block">
+                    Information Required <span className="text-rose-600">*</span>
+                  </label>
                   <textarea
+                    id="information-required"
+                    aria-describedby={rejectionError ? "information-required-error" : undefined}
+                    aria-invalid={Boolean(rejectionError)}
                     rows={2}
                     value={actionReason}
-                    onChange={(e) => setActionReason(e.target.value)}
+                    onChange={(e) => {
+                      setActionReason(e.target.value);
+                      if (e.target.value.trim()) setRejectionError(null);
+                    }}
                     placeholder="e.g. Please re-upload a clear, readable color scan of your Intermediate Part-II result card and father's CNIC."
-                    className="w-full text-xs p-3 border border-border rounded-lg bg-background-secondary focus:bg-white focus:outline-none focus:border-primary"
+                    className={`w-full text-xs p-3 border rounded-lg bg-background-secondary focus:bg-white focus:outline-none focus:border-primary ${rejectionError ? "border-rose-400" : "border-border"}`}
                   />
+                  {rejectionError && <p id="information-required-error" className="text-xs text-rose-600">{rejectionError}</p>}
 
                   <div className="flex items-center justify-end gap-2">
                     <Button
@@ -369,7 +432,7 @@ export function ApplicationPreviewModal({
                       size="sm"
                       className="bg-purple-700 hover:bg-purple-800 text-white"
                       onClick={handleRequestInfo}
-                      disabled={!actionReason.trim() || isSubmitting}
+                      disabled={isSubmitting}
                     >
                       {isSubmitting ? "Sending..." : "Send Request to Applicant"}
                     </Button>
@@ -387,13 +450,20 @@ export function ApplicationPreviewModal({
                     Specify the administrative reason for placing this application on hold (e.g., waiting for second merit list or board verification).
                   </p>
 
+                  <label htmlFor="hold-reason" className="text-xs font-semibold text-text-primary block">
+                    Hold Reason <span className="text-rose-600">*</span>
+                  </label>
                   <input
+                    id="hold-reason"
+                    aria-describedby={rejectionError ? "hold-reason-error" : undefined}
+                    aria-invalid={Boolean(rejectionError)}
                     type="text"
                     value={actionReason}
                     onChange={(e) => setActionReason(e.target.value)}
                     placeholder="e.g. Awaiting board gazette verification for special quota."
-                    className="w-full text-xs px-3 py-2 border border-border rounded-lg bg-background-secondary focus:bg-white focus:outline-none focus:border-primary"
+                    className={`w-full text-xs px-3 py-2 border rounded-lg bg-background-secondary focus:bg-white focus:outline-none focus:border-primary ${rejectionError ? "border-rose-400" : "border-border"}`}
                   />
+                  {rejectionError && <p id="hold-reason-error" className="text-xs text-rose-600">{rejectionError}</p>}
 
                   <div className="flex items-center justify-end gap-2">
                     <Button
@@ -412,7 +482,7 @@ export function ApplicationPreviewModal({
                       size="sm"
                       className="bg-orange-600 hover:bg-orange-700 text-white"
                       onClick={handlePutOnHold}
-                      disabled={!actionReason.trim() || isSubmitting}
+                      disabled={isSubmitting}
                     >
                       {isSubmitting ? "Updating..." : "Put On Hold"}
                     </Button>
@@ -662,7 +732,7 @@ export function ApplicationPreviewModal({
                 size="sm"
                 className="text-emerald-700 border-emerald-300 hover:bg-emerald-600 hover:text-white"
                 leftIcon={<CheckCircle2 className="w-3.5 h-3.5" />}
-                onClick={() => setActiveAction("accept_confirm")}
+                onClick={() => openAction("accept_confirm")}
               >
                 Accept Admission
               </Button>
@@ -674,7 +744,7 @@ export function ApplicationPreviewModal({
                 size="sm"
                 className="text-rose-600 border-rose-200 hover:bg-rose-600 hover:text-white"
                 leftIcon={<XCircle className="w-3.5 h-3.5" />}
-                onClick={() => setActiveAction("reject_form")}
+                onClick={() => openAction("reject_form")}
               >
                 Reject Application
               </Button>
@@ -685,7 +755,7 @@ export function ApplicationPreviewModal({
               size="sm"
               className="text-purple-700 border-purple-200 hover:bg-purple-50"
               leftIcon={<HelpCircle className="w-3.5 h-3.5" />}
-              onClick={() => setActiveAction("request_info_form")}
+              onClick={() => openAction("request_info_form")}
             >
               Request More Info
             </Button>
@@ -696,7 +766,7 @@ export function ApplicationPreviewModal({
                 size="sm"
                 className="text-orange-700 border-orange-200 hover:bg-orange-50"
                 leftIcon={<PauseCircle className="w-3.5 h-3.5" />}
-                onClick={() => setActiveAction("hold_form")}
+                  onClick={() => openAction("hold_form")}
               >
                 Put On Hold
               </Button>

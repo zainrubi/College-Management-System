@@ -319,28 +319,73 @@ function ApplicantDashboardContent() {
       appData.matricRollNo.trim()
   );
 
+  const hasRealDocumentVerification = (() => {
+    if (!appData.appId || typeof window === "undefined") return false;
+
+    try {
+      const raw = window.localStorage.getItem("cms_applications");
+      if (!raw) return false;
+
+      const applications = JSON.parse(raw);
+      if (!Array.isArray(applications)) return false;
+
+      const matchingApplication = applications.find(
+        (application: { id?: string; applicationNumber?: string }) =>
+          application.id === appData.appId || application.applicationNumber === appData.appId,
+      );
+
+      const documents = matchingApplication?.documents ?? [];
+      return Array.isArray(documents) && documents.some((document: { status?: string }) => document.status === "verified");
+    } catch {
+      return false;
+    }
+  })();
+
+  const workflowStages = (() => {
+    const stages = [
+      { label: "Application Submitted", complete: false },
+      { label: "Document Verification", complete: false },
+      { label: "Admissions Review", complete: false },
+      { label: "Decision", complete: false },
+    ];
+
+    if (!hasApplication) return stages;
+
+    if (appData.status === "Draft") return stages;
+
+    stages[0].complete = true;
+
+    if (hasRealDocumentVerification) {
+      stages[1].complete = true;
+    }
+
+    if (
+      appData.status === "Under Review" ||
+      appData.status === "On Hold" ||
+      appData.status === "Accepted" ||
+      appData.status === "Admitted" ||
+      appData.status === "Merit Qualified" ||
+      appData.status === "Rejected"
+    ) {
+      stages[2].complete = true;
+    }
+
+    if (
+      appData.status === "Accepted" ||
+      appData.status === "Admitted" ||
+      appData.status === "Merit Qualified" ||
+      appData.status === "Rejected"
+    ) {
+      stages[3].complete = true;
+    }
+
+    return stages;
+  })();
+
   const dashboardProgress = (() => {
     if (!hasApplication) return 0;
-    switch (appData.status) {
-      case "Draft":
-        return 25;
-      case "Submitted":
-        return 55;
-      case "Under Review":
-        return 75;
-      case "More Information Required":
-        return 68;
-      case "On Hold":
-        return 62;
-      case "Accepted":
-      case "Admitted":
-      case "Merit Qualified":
-        return 100;
-      case "Rejected":
-        return 88;
-      default:
-        return 50;
-    }
+    const completedStages = workflowStages.filter((stage) => stage.complete).length;
+    return Math.round((completedStages / workflowStages.length) * 100);
   })();
 
   const dashboardStatusText = (() => {
@@ -504,6 +549,36 @@ function ApplicantDashboardContent() {
               <Save className="w-3.5 h-3.5" />
               Save Progress
             </button>
+          ) : appData.status === "Submitted" ? (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>Application Submitted ({appData.submittedAt})</span>
+            </div>
+          ) : appData.status === "Under Review" ? (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-50 text-amber-800 text-xs font-semibold border border-amber-200">
+              <Clock className="w-4 h-4 text-amber-600" />
+              <span>Under Review ({appData.submittedAt})</span>
+            </div>
+          ) : appData.status === "More Information Required" ? (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-violet-50 text-violet-800 text-xs font-semibold border border-violet-200">
+              <AlertCircle className="w-4 h-4 text-violet-600" />
+              <span>More Information Required</span>
+            </div>
+          ) : appData.status === "On Hold" ? (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-orange-50 text-orange-800 text-xs font-semibold border border-orange-200">
+              <AlertCircle className="w-4 h-4 text-orange-600" />
+              <span>On Hold</span>
+            </div>
+          ) : appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified" ? (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>Accepted ({appData.submittedAt})</span>
+            </div>
+          ) : appData.status === "Rejected" ? (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-rose-50 text-rose-800 text-xs font-semibold border border-rose-200">
+              <AlertCircle className="w-4 h-4 text-rose-600" />
+              <span>Rejected</span>
+            </div>
           ) : (
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -669,26 +744,20 @@ function ApplicantDashboardContent() {
                   </div>
                   <p className="mt-4 text-xs text-text-secondary">
                     {hasApplication
-                      ? "Your application record is progressing through the admissions workflow."
+                      ? "This progress reflects the admissions workflow, not the percentage of the form still incomplete."
                       : "No application has been created yet. Your progress will update here once you begin."}
                   </p>
                 </div>
 
                 <div className="mt-6 space-y-3">
-                  {[
-                    "Profile details",
-                    "Academic information",
-                    "Program preference",
-                    "Document verification",
-                    "Admissions review",
-                  ].map((step, index) => {
-                    const isComplete = index < Math.max(1, Math.round(dashboardProgress / 20));
+                  {workflowStages.map((step, index) => {
+                    const isComplete = step.complete;
                     return (
-                      <div key={step} className="flex items-center gap-3 text-xs">
+                      <div key={`${step.label}-${index}`} className="flex items-center gap-3 text-xs">
                         <span className={`w-5 h-5 flex items-center justify-center border ${isComplete ? "bg-primary border-primary text-white" : "border-border bg-background-secondary text-text-muted"}`}>
                           {isComplete ? <Check className="w-3 h-3" /> : index + 1}
                         </span>
-                        <span className={isComplete ? "font-bold text-text-primary" : "text-text-secondary"}>{step}</span>
+                        <span className={isComplete ? "font-bold text-text-primary" : "text-text-secondary"}>{step.label}</span>
                       </div>
                     );
                   })}

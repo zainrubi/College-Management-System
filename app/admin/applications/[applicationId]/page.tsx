@@ -48,6 +48,7 @@ import {
   executeApplicationAction,
   APPLICATION_STATUS_CONFIG,
   updateStoredApplication,
+  getApplicationLifecycleStatus,
 } from "@/lib/mock-data/applications-data";
 
 interface PageProps {
@@ -225,8 +226,9 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
     );
   }
 
-  const statusConfig = APPLICATION_STATUS_CONFIG[application.status] || {
-    label: application.status,
+  const lifecycleStatus = getApplicationLifecycleStatus(application.status);
+  const statusConfig = APPLICATION_STATUS_CONFIG[lifecycleStatus] || {
+    label: lifecycleStatus,
     variant: "default",
     badgeClass: "bg-slate-100 text-slate-700",
     bgLight: "bg-slate-50",
@@ -267,100 +269,103 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
       </div>
 
       {/* ── Sticky Top Action Bar / Page Header ───────────────────────────── */}
-      <div className="bg-white border border-border rounded-2xl p-5 mb-6 shadow-xs sticky top-16 z-20 backdrop-blur-md bg-white/95 transition-all">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          {/* Applicant Identification */}
-          <div className="flex items-center gap-4 min-w-0">
-            <div className="w-14 h-14 rounded-full overflow-hidden bg-primary-light border-2 border-primary/20 shrink-0 relative flex items-center justify-center shadow-xs">
-              {application.personal.photoUrl ? (
-                <img
-                  src={application.personal.photoUrl}
-                  alt={application.personal.fullName}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <User className="w-7 h-7 text-primary" />
+      <div className="sticky top-16 z-20 mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-slate-100 shadow-[0_14px_30px_rgba(15,23,42,0.06)] backdrop-blur-sm">
+        <div className="p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            {/* Applicant Identification */}
+            <div className="flex min-w-0 items-center gap-4">
+              <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-slate-200 bg-slate-100 shadow-sm">
+                {application.personal.photoUrl ? (
+                  <img
+                    src={application.personal.photoUrl}
+                    alt={application.personal.fullName}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <User className="h-7 w-7 text-slate-600" />
+                )}
+              </div>
+
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h1 className="truncate text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
+                    {application.personal.fullName}
+                  </h1>
+                  <span className="rounded-md border border-slate-200 bg-slate-100 px-2.5 py-0.5 font-mono text-xs font-bold text-slate-700">
+                    {application.applicationNumber}
+                  </span>
+                  <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold ${statusConfig.badgeClass}`}>
+                    <span className="h-2 w-2 rounded-full bg-current"></span>
+                    {statusConfig.label}
+                  </span>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-4 text-xs text-slate-600">
+                  <span>Program: <strong className="text-slate-900">{application.preferences.selectedProgram}</strong></span>
+                  <span>Session: <strong className="text-slate-900">{application.preferences.admissionSession}</strong></span>
+                  <span>Campus: <strong className="text-slate-900">{application.preferences.campusPreference}</strong></span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Button Strip */}
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3 lg:border-t-0 lg:pt-0">
+              {application.status !== "accepted" && application.status !== "enrolled" && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 font-semibold"
+                  leftIcon={<CheckCircle2 className="w-4 h-4" />}
+                  onClick={() => setShowAcceptModal(true)}
+                >
+                  Accept Admission
+                </Button>
               )}
-            </div>
 
-            <div className="min-w-0">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <h1 className="text-xl sm:text-2xl font-extrabold text-text-primary tracking-tight truncate">
-                  {application.personal.fullName}
-                </h1>
-                <span className="px-2.5 py-0.5 rounded-md text-xs font-mono font-bold bg-primary-light text-primary border border-primary/20">
-                  {application.applicationNumber}
-                </span>
-                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${statusConfig.badgeClass}`}>
-                  <span className="w-2 h-2 rounded-full bg-current"></span>
-                  {statusConfig.label}
-                </span>
-              </div>
-              <div className="flex items-center gap-4 text-xs text-text-secondary mt-1 flex-wrap">
-                <span>Program: <strong className="text-text-primary">{application.preferences.selectedProgram}</strong></span>
-                <span>Session: <strong className="text-text-primary">{application.preferences.admissionSession}</strong></span>
-                <span>Campus: <strong className="text-text-primary">{application.preferences.campusPreference}</strong></span>
-              </div>
-            </div>
-          </div>
+              {application.status !== "rejected" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                  leftIcon={<XCircle className="w-4 h-4" />}
+                  onClick={() => setShowRejectModal(true)}
+                >
+                  Reject Application
+                </Button>
+              )}
 
-          {/* Action Button Strip */}
-          <div className="flex flex-wrap items-center gap-2 border-t lg:border-t-0 pt-3 lg:pt-0 border-border">
-            {application.status !== "accepted" && application.status !== "enrolled" && (
-              <Button
-                variant="primary"
-                size="sm"
-                className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-semibold"
-                leftIcon={<CheckCircle2 className="w-4 h-4" />}
-                onClick={() => setShowAcceptModal(true)}
-              >
-                Accept Admission
-              </Button>
-            )}
-
-            {application.status !== "rejected" && (
               <Button
                 variant="outline"
                 size="sm"
-                className="text-rose-600 border-rose-200 hover:bg-rose-600 hover:text-white"
-                leftIcon={<XCircle className="w-4 h-4" />}
-                onClick={() => setShowRejectModal(true)}
+                className="border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                leftIcon={<HelpCircle className="w-4 h-4" />}
+                onClick={() => setShowInfoModal(true)}
               >
-                Reject Application
+                Request More Info
               </Button>
-            )}
 
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-purple-700 border-purple-200 hover:bg-purple-50"
-              leftIcon={<HelpCircle className="w-4 h-4" />}
-              onClick={() => setShowInfoModal(true)}
-            >
-              Request More Info
-            </Button>
+              {application.status !== "on_hold" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                  leftIcon={<PauseCircle className="w-4 h-4" />}
+                  onClick={() => setShowHoldModal(true)}
+                >
+                  Put On Hold
+                </Button>
+              )}
 
-            {application.status !== "on_hold" && (
               <Button
                 variant="outline"
                 size="sm"
-                className="text-orange-700 border-orange-200 hover:bg-orange-50"
-                leftIcon={<PauseCircle className="w-4 h-4" />}
-                onClick={() => setShowHoldModal(true)}
+                className="border-slate-200 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                leftIcon={<Printer className="w-4 h-4" />}
+                onClick={() => window.print()}
+                title="Print Application Docket"
               >
-                Put On Hold
+                Print
               </Button>
-            )}
-
-            <Button
-              variant="outline"
-              size="sm"
-              leftIcon={<Printer className="w-4 h-4" />}
-              onClick={() => window.print()}
-              title="Print Application Docket"
-            >
-              Print
-            </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -372,16 +377,16 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
           {/* ══════════════════════════════════════════════════════════════
               SECTION A — APPLICATION OVERVIEW
           ══════════════════════════════════════════════════════════════ */}
-          <section className="bg-white border border-border rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-border">
-              <div className="flex items-center gap-2 text-primary font-bold text-sm tracking-wide uppercase">
-                <span className="w-2 h-4 bg-accent-gold rounded-full inline-block"></span>
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition-all duration-200 hover:shadow-[0_14px_28px_rgba(15,23,42,0.06)]">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.12em] text-slate-800">
+                <span className="inline-block h-4 w-2 rounded-full bg-slate-300"></span>
                 SECTION A — APPLICATION OVERVIEW
               </div>
-              <span className="text-xs text-text-muted">General Docket</span>
+              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">General Docket</span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+            <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
               <div className="p-3 bg-background-secondary rounded-xl border border-border/70">
                 <p className="text-[10px] uppercase font-bold text-text-muted tracking-wider">Application Number</p>
                 <p className="font-mono font-bold text-primary text-sm mt-0.5">{application.applicationNumber}</p>
@@ -439,16 +444,16 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
           {/* ══════════════════════════════════════════════════════════════
               SECTION B — PERSONAL INFORMATION
           ══════════════════════════════════════════════════════════════ */}
-          <section className="bg-white border border-border rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-border">
-              <div className="flex items-center gap-2 text-primary font-bold text-sm tracking-wide uppercase">
-                <span className="w-2 h-4 bg-accent-gold rounded-full inline-block"></span>
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition-all duration-200 hover:shadow-[0_14px_28px_rgba(15,23,42,0.06)]">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.12em] text-slate-800">
+                <span className="inline-block h-4 w-2 rounded-full bg-slate-300"></span>
                 SECTION B — PERSONAL INFORMATION
               </div>
-              <span className="text-xs text-text-muted">Applicant Identity</span>
+              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">Applicant Identity</span>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-5 items-start">
+            <div className="flex flex-col items-start gap-5 sm:flex-row">
               {/* Photo */}
               <div className="shrink-0 flex flex-col items-center gap-2">
                 <div className="w-28 h-28 rounded-xl overflow-hidden bg-background-secondary border-2 border-border shadow-xs">
@@ -531,13 +536,13 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
           {/* ══════════════════════════════════════════════════════════════
               SECTION C — CONTACT INFORMATION
           ══════════════════════════════════════════════════════════════ */}
-          <section className="bg-white border border-border rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-border">
-              <div className="flex items-center gap-2 text-primary font-bold text-sm tracking-wide uppercase">
-                <span className="w-2 h-4 bg-accent-gold rounded-full inline-block"></span>
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition-all duration-200 hover:shadow-[0_14px_28px_rgba(15,23,42,0.06)]">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.12em] text-slate-800">
+                <span className="inline-block h-4 w-2 rounded-full bg-slate-300"></span>
                 SECTION C — CONTACT INFORMATION
               </div>
-              <span className="text-xs text-text-muted">Communication Coordinates</span>
+              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">Communication Coordinates</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
@@ -593,13 +598,13 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
           {/* ══════════════════════════════════════════════════════════════
               SECTION D — PARENT / GUARDIAN INFORMATION
           ══════════════════════════════════════════════════════════════ */}
-          <section className="bg-white border border-border rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-border">
-              <div className="flex items-center gap-2 text-primary font-bold text-sm tracking-wide uppercase">
-                <span className="w-2 h-4 bg-accent-gold rounded-full inline-block"></span>
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition-all duration-200 hover:shadow-[0_14px_28px_rgba(15,23,42,0.06)]">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.12em] text-slate-800">
+                <span className="inline-block h-4 w-2 rounded-full bg-slate-300"></span>
                 SECTION D — PARENT / GUARDIAN INFORMATION
               </div>
-              <span className="text-xs text-text-muted">Guardian Records</span>
+              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">Guardian Records</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
@@ -650,13 +655,13 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
           {/* ══════════════════════════════════════════════════════════════
               SECTION E — ACADEMIC HISTORY (Supports multiple records)
           ══════════════════════════════════════════════════════════════ */}
-          <section className="bg-white border border-border rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-border">
-              <div className="flex items-center gap-2 text-primary font-bold text-sm tracking-wide uppercase">
-                <span className="w-2 h-4 bg-accent-gold rounded-full inline-block"></span>
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition-all duration-200 hover:shadow-[0_14px_28px_rgba(15,23,42,0.06)]">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.12em] text-slate-800">
+                <span className="inline-block h-4 w-2 rounded-full bg-slate-300"></span>
                 SECTION E — ACADEMIC HISTORY
               </div>
-              <span className="text-xs text-text-muted">{application.academicHistory.length} Record(s) Submitted</span>
+              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">{application.academicHistory.length} Record(s) Submitted</span>
             </div>
 
             {application.academicHistory.length === 0 ? (
@@ -725,13 +730,13 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
           {/* ══════════════════════════════════════════════════════════════
               SECTION F — PROGRAM / ADMISSION PREFERENCES
           ══════════════════════════════════════════════════════════════ */}
-          <section className="bg-white border border-border rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-border">
-              <div className="flex items-center gap-2 text-primary font-bold text-sm tracking-wide uppercase">
-                <span className="w-2 h-4 bg-accent-gold rounded-full inline-block"></span>
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition-all duration-200 hover:shadow-[0_14px_28px_rgba(15,23,42,0.06)]">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.12em] text-slate-800">
+                <span className="inline-block h-4 w-2 rounded-full bg-slate-300"></span>
                 SECTION F — PROGRAM & ADMISSION PREFERENCES
               </div>
-              <span className="text-xs text-text-muted">Choice of Study</span>
+              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">Choice of Study</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
@@ -770,13 +775,13 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
           {/* ══════════════════════════════════════════════════════════════
               SECTION G — TRANSPORT INFORMATION
           ══════════════════════════════════════════════════════════════ */}
-          <section className="bg-white border border-border rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-border">
-              <div className="flex items-center gap-2 text-primary font-bold text-sm tracking-wide uppercase">
-                <span className="w-2 h-4 bg-accent-gold rounded-full inline-block"></span>
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition-all duration-200 hover:shadow-[0_14px_28px_rgba(15,23,42,0.06)]">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.12em] text-slate-800">
+                <span className="inline-block h-4 w-2 rounded-full bg-slate-300"></span>
                 SECTION G — TRANSPORT INFORMATION
               </div>
-              <span className="text-xs text-text-muted">Commuting Facility</span>
+              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">Commuting Facility</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
@@ -809,13 +814,13 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
           {/* ══════════════════════════════════════════════════════════════
               SECTION H — DOCUMENTS (With preview action & verification)
           ══════════════════════════════════════════════════════════════ */}
-          <section className="bg-white border border-border rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-border">
-              <div className="flex items-center gap-2 text-primary font-bold text-sm tracking-wide uppercase">
-                <span className="w-2 h-4 bg-accent-gold rounded-full inline-block"></span>
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition-all duration-200 hover:shadow-[0_14px_28px_rgba(15,23,42,0.06)]">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.12em] text-slate-800">
+                <span className="inline-block h-4 w-2 rounded-full bg-slate-300"></span>
                 SECTION H — SUBMITTED DOCUMENTS
               </div>
-              <span className="text-xs text-text-muted">{application.documents.length} Document(s) Uploaded</span>
+              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">{application.documents.length} Document(s) Uploaded</span>
             </div>
 
             {application.documents.length === 0 ? (
@@ -891,13 +896,13 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
           {/* ══════════════════════════════════════════════════════════════
               SECTION I — DECLARATION / ADDITIONAL INFORMATION
           ══════════════════════════════════════════════════════════════ */}
-          <section className="bg-white border border-border rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-border">
-              <div className="flex items-center gap-2 text-primary font-bold text-sm tracking-wide uppercase">
-                <span className="w-2 h-4 bg-accent-gold rounded-full inline-block"></span>
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)] transition-all duration-200 hover:shadow-[0_14px_28px_rgba(15,23,42,0.06)]">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.12em] text-slate-800">
+                <span className="inline-block h-4 w-2 rounded-full bg-slate-300"></span>
                 SECTION I — DECLARATION & ADDITIONAL INFORMATION
               </div>
-              <span className="text-xs text-text-muted">Applicant Undertaking</span>
+              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">Applicant Undertaking</span>
             </div>
 
             <div className="space-y-3 text-xs">
@@ -954,9 +959,9 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
         {/* Right 1 Column: Section J — Application History & Audit Trail + Quick Stats */}
         <div className="space-y-6">
           {/* Quick Summary Card */}
-          <div className="bg-white border border-border rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center gap-2 pb-3 mb-3 border-b border-border text-primary font-bold text-xs uppercase tracking-wider">
-              <Sparkles className="w-4 h-4 text-accent-gold" />
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+            <div className="mb-3 flex items-center gap-2 border-b border-slate-200 pb-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-800">
+              <Sparkles className="h-4 w-4 text-slate-500" />
               Review Summary
             </div>
 
@@ -985,16 +990,16 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
           {/* ══════════════════════════════════════════════════════════════
               SECTION J / AUDIT TRAIL — APPLICATION HISTORY
           ══════════════════════════════════════════════════════════════ */}
-          <div className="bg-white border border-border rounded-2xl p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-border">
-              <div className="flex items-center gap-2 text-primary font-bold text-sm tracking-wide uppercase">
-                <History className="w-4 h-4 text-accent-gold" />
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+              <div className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.12em] text-slate-800">
+                <History className="h-4 w-4 text-slate-500" />
                 APPLICATION HISTORY / AUDIT TRAIL
               </div>
-              <span className="text-xs text-text-muted">{application.history.length} Event(s)</span>
+              <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">{application.history.length} Event(s)</span>
             </div>
 
-            <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-border">
+            <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
               {application.history.map((event, idx) => (
                 <div
                   key={event.id || idx}
@@ -1162,7 +1167,7 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
             <Button
               variant="primary"
               size="sm"
-              className="bg-purple-700 hover:bg-purple-800 text-white font-semibold"
+              className="bg-slate-800 hover:bg-slate-900 text-white font-semibold"
               leftIcon={<HelpCircle className="w-4 h-4" />}
               disabled={!requestInfoNotes.trim()}
               onClick={handleRequestInfo}
@@ -1206,7 +1211,7 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
             <Button
               variant="primary"
               size="sm"
-              className="bg-orange-600 hover:bg-orange-700 text-white font-semibold"
+              className="bg-slate-700 hover:bg-slate-800 text-white font-semibold"
               leftIcon={<PauseCircle className="w-4 h-4" />}
               disabled={!holdNotes.trim()}
               onClick={handlePutOnHold}
