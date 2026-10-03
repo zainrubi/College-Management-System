@@ -169,7 +169,7 @@ export default function ApplicantRegisterPage() {
         });
         setIsSubmitting(false);
         setSuccess(true);
-        setTimeout(() => router.push("/applicant?tab=application"), 900);
+        setTimeout(() => router.push("/applicant"), 900);
       })
       .catch((err: unknown) => {
         setIsSubmitting(false);

@@ -1,120 +1,86 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
-import { cn } from "@/lib/utils";
+import {
+  motion,
+  useInView,
+  useReducedMotion,
+  useScroll,
+  useTransform,
+} from "framer-motion";
 
-// 1. Scroll Reveal Wrapper
+const ease = [0.16, 1, 0.3, 1] as const;
+
+type RevealVariant = "up" | "down" | "left" | "right" | "scale" | "clip-up" | "clip-left";
+
+type RevealProps = {
+  children: React.ReactNode;
+  className?: string;
+  variant?: RevealVariant;
+  delay?: number;
+  threshold?: number;
+};
+
+function getHiddenState(variant: RevealVariant) {
+  switch (variant) {
+    case "down":
+      return { opacity: 0, y: -18 };
+    case "left":
+      return { opacity: 0, x: -18 };
+    case "right":
+      return { opacity: 0, x: 18 };
+    case "scale":
+      return { opacity: 0, scale: 0.98 };
+    case "clip-up":
+      return { opacity: 0, y: 14 };
+    case "clip-left":
+      return { opacity: 0, x: -14 };
+    default:
+      return { opacity: 0, y: 18 };
+  }
+}
+
 export function ScrollReveal({
   children,
   className,
   variant = "up",
   delay = 0,
   threshold = 0.12,
-}: {
-  children: React.ReactNode;
-  className?: string;
-  variant?: "up" | "down" | "left" | "right" | "scale" | "clip-up" | "clip-left";
-  delay?: number;
-  threshold?: number;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          if (delay > 0) {
-            setTimeout(() => setVisible(true), delay);
-          } else {
-            setVisible(true);
-          }
-          observer.disconnect();
-        }
-      },
-      { threshold },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [delay, threshold]);
-
-  const variantClass = {
-    up: "reveal",
-    down: "reveal-down",
-    left: "reveal-left",
-    right: "reveal-right",
-    scale: "reveal-scale",
-    "clip-up": "reveal-clip-up",
-    "clip-left": "reveal-clip-left",
-  }[variant];
+}: RevealProps) {
+  const reducedMotion = useReducedMotion();
 
   return (
-    <div
-      ref={ref}
-      className={cn(
-        variantClass,
-        visible && "is-visible",
-        className
-      )}
+    <motion.div
+      className={className}
+      initial={reducedMotion ? false : getHiddenState(variant)}
+      whileInView={{ opacity: 1, x: 0, y: 0, scale: 1 }}
+      viewport={{ once: true, amount: threshold }}
+      transition={{
+        duration: reducedMotion ? 0 : 0.48,
+        delay: reducedMotion ? 0 : delay / 1000,
+        ease,
+      }}
     >
       {children}
-    </div>
+    </motion.div>
   );
 }
 
-// 2. Text Line Reveal (Masked vertical transition)
-export function TextLineReveal({
+export function FadeUp({
   children,
   className,
   delay = 0,
-}: {
-  children: React.ReactNode;
-  className?: string;
-  delay?: number;
-}) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          if (delay > 0) {
-            setTimeout(() => setVisible(true), delay);
-          } else {
-            setVisible(true);
-          }
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.05 }
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [delay]);
-
+}: Omit<RevealProps, "variant" | "threshold">) {
   return (
-    <span ref={ref} className={cn("block overflow-hidden py-1", className)}>
-      <span
-        className={cn(
-          "block transition-transform duration-[1200ms] cubic-bezier(0.16, 1, 0.3, 1) transform",
-          visible ? "translate-y-0" : "translate-y-[110%]"
-        )}
-      >
-        {children}
-      </span>
-    </span>
+    <ScrollReveal className={className} delay={delay} variant="up">
+      {children}
+    </ScrollReveal>
   );
 }
 
-// 3. CountUp Stat Counter
 export function CountUp({
   value,
-  duration = 1800,
+  duration = 520,
   className,
   suffix = "",
 }: {
@@ -123,61 +89,35 @@ export function CountUp({
   className?: string;
   suffix?: string;
 }) {
-  const [count, setCount] = useState(0);
   const ref = useRef<HTMLSpanElement>(null);
-  const [started, setStarted] = useState(false);
+  const inView = useInView(ref, { once: true, amount: 0.1 });
+  const reducedMotion = useReducedMotion();
+  const [count, setCount] = useState(0);
 
   useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setStarted(true);
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.1 }
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
+    if (!inView || reducedMotion) return;
 
-  useEffect(() => {
-    if (!started) return;
-    
-    // Check for reduced motion
-    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (prefersReducedMotion) {
-      const handle = requestAnimationFrame(() => {
-        setCount(value);
-      });
-      return () => cancelAnimationFrame(handle);
-    }
-
-    let startTimestamp: number | null = null;
-    const step = (timestamp: number) => {
-      if (!startTimestamp) startTimestamp = timestamp;
-      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-      // Easing: easeOutQuart
-      const easeProgress = 1 - Math.pow(1 - progress, 4);
-      setCount(Math.floor(easeProgress * value));
-      if (progress < 1) {
-        window.requestAnimationFrame(step);
-      }
+    let frame = 0;
+    let startTime: number | null = null;
+    const animateCount = (timestamp: number) => {
+      if (startTime === null) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      const easedProgress = 1 - Math.pow(1 - progress, 3);
+      setCount(Math.floor(easedProgress * value));
+      if (progress < 1) frame = window.requestAnimationFrame(animateCount);
     };
-    window.requestAnimationFrame(step);
-  }, [started, value, duration]);
+
+    frame = window.requestAnimationFrame(animateCount);
+    return () => window.cancelAnimationFrame(frame);
+  }, [duration, inView, reducedMotion, value]);
 
   return (
     <span ref={ref} className={className}>
-      {count.toLocaleString()}
-      {suffix}
+      {(reducedMotion ? value : count).toLocaleString()}{suffix}
     </span>
   );
 }
 
-// 4. Scroll Parallax Container
 export function ScrollParallax({
   children,
   className,
@@ -189,70 +129,29 @@ export function ScrollParallax({
   speed?: number;
   maxTranslate?: number;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [translateY, setTranslateY] = useState(0);
-
-  useEffect(() => {
-    // Disable on mobile/touch devices or reduced motion
-    const isMobile =
-      typeof window !== "undefined" &&
-      (window.matchMedia("(max-width: 768px)").matches ||
-        "ontouchstart" in window ||
-        navigator.maxTouchPoints > 0);
-    const prefersReducedMotion =
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    if (isMobile || prefersReducedMotion) return;
-
-    let ticking = false;
-
-    const handleScroll = () => {
-      if (!ticking) {
-        window.requestAnimationFrame(() => {
-          const container = containerRef.current;
-          if (container) {
-            const rect = container.getBoundingClientRect();
-            const viewHeight = window.innerHeight;
-
-            // Only calculate if visible in viewport
-            if (rect.top < viewHeight && rect.bottom > 0) {
-              const elementCenter = rect.top + rect.height / 2;
-              const viewCenter = viewHeight / 2;
-              const offset = (elementCenter - viewCenter) * speed;
-              const boundedOffset = Math.max(-maxTranslate, Math.min(maxTranslate, offset));
-              setTranslateY(boundedOffset);
-            }
-          }
-          ticking = false;
-        });
-        ticking = true;
-      }
-    };
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    // Run initial positioning
-    handleScroll();
-
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [speed, maxTranslate]);
+  const ref = useRef<HTMLDivElement>(null);
+  const reducedMotion = useReducedMotion();
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ["start end", "end start"],
+  });
+  const distance = Math.min(maxTranslate, Math.abs(speed) * 1000);
+  const y = useTransform(
+    scrollYProgress,
+    [0, 1],
+    speed < 0 ? [distance, -distance] : [-distance, distance],
+  );
 
   return (
-    <div
-      ref={containerRef}
-      className={className}
-      style={{
-        transform: `translateY(${translateY}px)`,
-        transition: "transform 0.15s cubic-bezier(0.25, 1, 0.5, 1)",
-      }}
-    >
+    <motion.div ref={ref} className={className} style={{ y: reducedMotion ? 0 : y }}>
       {children}
-    </div>
+    </motion.div>
   );
 }
 
-// 5. Staggered Entrance Parent Context
-const StaggerContext = createContext<boolean>(false);
+export const ParallaxWrapper = ScrollParallax;
+
+const StaggerContext = createContext(false);
 
 export function StaggerContainer({
   children,
@@ -266,30 +165,20 @@ export function StaggerContainer({
   delay?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, amount: threshold });
+  const reducedMotion = useReducedMotion();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          if (delay > 0) {
-            setTimeout(() => setVisible(true), delay);
-          } else {
-            setVisible(true);
-          }
-          observer.disconnect();
-        }
-      },
-      { threshold }
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [delay, threshold]);
+    if (!inView || delay <= 0 || reducedMotion) return;
+    const timeout = window.setTimeout(() => setVisible(true), delay);
+    return () => window.clearTimeout(timeout);
+  }, [delay, inView, reducedMotion]);
+
+  const isVisible = inView && (delay <= 0 || reducedMotion || visible);
 
   return (
-    <StaggerContext.Provider value={visible}>
+    <StaggerContext.Provider value={isVisible}>
       <div ref={ref} className={className}>
         {children}
       </div>
@@ -297,7 +186,6 @@ export function StaggerContainer({
   );
 }
 
-// 6. Staggered Entrance Item
 export function StaggerItem({
   children,
   index,
@@ -314,28 +202,21 @@ export function StaggerItem({
   className?: string;
 }) {
   const visible = useContext(StaggerContext);
-  const variantClass = {
-    up: "reveal",
-    down: "reveal-down",
-    left: "reveal-left",
-    right: "reveal-right",
-    scale: "reveal-scale",
-  }[variant];
-
-  const delayMs = baseDelay + index * staggerInterval;
+  const reducedMotion = useReducedMotion();
+  const hiddenState = getHiddenState(variant);
 
   return (
-    <div
-      className={cn(
-        variantClass,
-        visible && "is-visible",
-        className
-      )}
-      style={{
-        transitionDelay: visible ? `${delayMs}ms` : "0ms",
+    <motion.div
+      className={className}
+      initial={reducedMotion ? false : hiddenState}
+      animate={visible ? { opacity: 1, x: 0, y: 0, scale: 1 } : hiddenState}
+      transition={{
+        duration: reducedMotion ? 0 : 0.45,
+        delay: reducedMotion ? 0 : (baseDelay + index * staggerInterval) / 1000,
+        ease,
       }}
     >
       {children}
-    </div>
+    </motion.div>
   );
 }

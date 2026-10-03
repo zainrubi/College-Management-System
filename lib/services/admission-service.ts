@@ -12,7 +12,6 @@ import type {
 } from "@/types/applications";
 
 export const APPLICANT_APPLICATION_STORAGE_KEY = "cms_applicant_admission_data";
-const REGISTERED_PHONES_STORAGE_KEY = "cms_registered_phones";
 const AUTH_USER_STORAGE_KEY = "cms_demo_auth_user";
 const APPLICANT_ACCOUNTS_STORAGE_KEY = "cms_applicant_accounts";
 
@@ -26,15 +25,15 @@ interface StoredApplicantAccount {
 export interface ApplicantApplicationData {
   appId?: string;
   status:
-    | "Draft"
-    | "Submitted"
-    | "Under Review"
-    | "More Information Required"
-    | "On Hold"
-    | "Merit Qualified"
-    | "Accepted"
-    | "Admitted"
-    | "Rejected";
+  | "Draft"
+  | "Submitted"
+  | "Under Review"
+  | "More Information Required"
+  | "On Hold"
+  | "Merit Qualified"
+  | "Accepted"
+  | "Admitted"
+  | "Rejected";
   submittedAt?: string;
   fullName: string;
   fatherName: string;
@@ -170,30 +169,31 @@ export async function registerApplicant(input: ApplicantRegistrationInput): Prom
   if (input.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) {
     throw new Error("INVALID_EMAIL");
   }
-  const registeredPhones = readJson<string[]>(REGISTERED_PHONES_STORAGE_KEY, []);
-  if (registeredPhones.includes(phone)) throw new Error("PHONE_ALREADY_REGISTERED");
 
-  writeJson(REGISTERED_PHONES_STORAGE_KEY, [...registeredPhones, phone]);
-
-  const accounts = readJson<StoredApplicantAccount[]>(APPLICANT_ACCOUNTS_STORAGE_KEY, []);
-  writeJson(APPLICANT_ACCOUNTS_STORAGE_KEY, [
-    ...accounts.filter((account) => account.phone !== phone),
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/applicants/register`,
     {
-      phone,
-      password: input.password,
-      fullName: input.fullName.trim(),
-      email: input.email || undefined,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fullName: input.fullName.trim(),
+        phone,
+        email: input.email || undefined,
+        password: input.password,
+      }),
     },
-  ]);
+  );
 
-  writeJson(AUTH_USER_STORAGE_KEY, {
-    id: `usr-app-${Date.now()}`,
-    name: input.fullName.trim(),
-    email: input.email || "",
-    phone,
-    role: "applicant",
-    createdAt: new Date().toISOString(),
-  });
+  const result = (await response.json().catch(() => ({}))) as { message?: string };
+  if (!response.ok) {
+    if (response.status === 409 && result.message?.startsWith("Mobile number")) {
+      throw new Error("PHONE_ALREADY_REGISTERED");
+    }
+    if (response.status === 409 && result.message?.startsWith("Email")) {
+      throw new Error("EMAIL_ALREADY_REGISTERED");
+    }
+    throw new Error(result.message || "REGISTRATION_FAILED");
+  }
 }
 
 export async function loginApplicant(identifier: string, password: string): Promise<ApplicantLoginResult> {
