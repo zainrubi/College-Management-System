@@ -44,6 +44,7 @@ import { LoadingState } from "@/components/ui/LoadingState";
 import {
   DEFAULT_APPLICANT_APPLICATION,
   getApplication,
+  saveAdmissionDraft,
   saveApplication,
   submitApplication,
   syncApplicantStatusFromAdmin,
@@ -94,6 +95,8 @@ function ApplicantDashboardContent() {
   const [formStep, setFormStep] = useState<number>(1);
   const [appData, setAppData] = useState<ApplicationData>(DEFAULT_APP_DATA);
   const [saveToast, setSaveToast] = useState<string | null>(null);
+  const [saveToastIsError, setSaveToastIsError] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
 
   useEffect(() => {
     const requestedTab = searchParams.get("tab");
@@ -112,7 +115,7 @@ function ApplicantDashboardContent() {
   // Load persisted application data or prefill user details
   useEffect(() => {
     let cancelled = false;
-    getApplication()
+    getApplication(user?.id)
       .then((stored) => syncApplicantStatusFromAdmin(stored))
       .then((stored) => {
         if (cancelled) return;
@@ -145,9 +148,26 @@ function ApplicantDashboardContent() {
   };
 
   const handleSaveDraft = () => {
-    saveProgress({});
-    setSaveToast("Draft saved successfully.");
-    setTimeout(() => setSaveToast(null), 3000);
+    if (isSavingDraft) return;
+
+    setIsSavingDraft(true);
+    void saveAdmissionDraft(appData, user?.id || "")
+      .then((saved) => {
+        setAppData(saved);
+        setSaveToastIsError(false);
+        setSaveToast("Draft saved successfully.");
+      })
+      .catch((error: unknown) => {
+        void saveApplication({}, appData);
+        setSaveToastIsError(true);
+        setSaveToast(
+          error instanceof Error ? error.message : "Unable to save your draft. Please try again.",
+        );
+      })
+      .finally(() => {
+        setIsSavingDraft(false);
+        setTimeout(() => setSaveToast(null), 4000);
+      });
   };
 
   // Step restriction & validation helper
@@ -311,12 +331,12 @@ function ApplicantDashboardContent() {
 
   const hasApplication = Boolean(
     appData.appId ||
-      appData.fullName.trim() ||
-      appData.idNumber.trim() ||
-      appData.phone.trim() ||
-      appData.email.trim() ||
-      appData.primaryProgram.trim() ||
-      appData.matricRollNo.trim()
+    appData.fullName.trim() ||
+    appData.idNumber.trim() ||
+    appData.phone.trim() ||
+    appData.email.trim() ||
+    appData.primaryProgram.trim() ||
+    appData.matricRollNo.trim()
   );
 
   const hasRealDocumentVerification = (() => {
@@ -544,10 +564,11 @@ function ApplicantDashboardContent() {
           {appData.status === "Draft" ? (
             <button
               onClick={handleSaveDraft}
+              disabled={isSavingDraft}
               className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-primary bg-primary-light hover:bg-primary/20 border border-primary/30 transition-colors self-start sm:self-auto"
             >
               <Save className="w-3.5 h-3.5" />
-              Save Progress
+              {isSavingDraft ? "Saving..." : "Save Progress"}
             </button>
           ) : appData.status === "Submitted" ? (
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200">
@@ -607,8 +628,8 @@ function ApplicantDashboardContent() {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as typeof activeTab)}
                   className={`flex min-h-11 items-center gap-2 px-4 text-xs font-bold whitespace-nowrap transition-all border-b-2 ${isActive
-                      ? "border-primary text-primary bg-primary-light/40"
-                      : "border-transparent text-text-secondary hover:text-text-primary hover:bg-background-secondary"
+                    ? "border-primary text-primary bg-primary-light/40"
+                    : "border-transparent text-text-secondary hover:text-text-primary hover:bg-background-secondary"
                     }`}
                 >
                   <Icon className={`w-4 h-4 ${isActive ? "text-primary" : "text-text-muted"}`} />
@@ -622,8 +643,10 @@ function ApplicantDashboardContent() {
 
       {/* ── TOAST NOTIFICATION ───────────────────────────────────────────── */}
       {saveToast && (
-        <div className="portal-success fixed bottom-6 right-6 z-50 bg-primary-dark text-white px-5 py-3 shadow-2xl border border-accent-gold flex items-center gap-3">
-          <CheckCircle2 className="w-5 h-5 text-accent-gold" />
+        <div className={`portal-success fixed bottom-6 right-6 z-50 px-5 py-3 shadow-2xl border flex items-center gap-3 ${saveToastIsError ? "bg-red-700 border-red-300" : "bg-primary-dark border-accent-gold"} text-white`}>
+          {saveToastIsError
+            ? <AlertCircle className="w-5 h-5 text-white" />
+            : <CheckCircle2 className="w-5 h-5 text-accent-gold" />}
           <span className="text-xs font-semibold">{saveToast}</span>
         </div>
       )}
@@ -645,8 +668,7 @@ function ApplicantDashboardContent() {
                       {dashboardStatusText}. {hasApplication ? "Your admissions record is active and ready for review." : "Start your admission application to begin the process."}
                     </p>
                   </div>
-                  <span className={`inline-flex items-center px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border ${
-                    appData.status === "Rejected"
+                  <span className={`inline-flex items-center px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border ${appData.status === "Rejected"
                       ? "border-rose-300 bg-rose-50 text-rose-700"
                       : appData.status === "Submitted" || appData.status === "Under Review" || appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified"
                         ? "border-emerald-300 bg-emerald-50 text-emerald-700"
@@ -655,7 +677,7 @@ function ApplicantDashboardContent() {
                           : appData.status === "On Hold"
                             ? "border-orange-300 bg-orange-50 text-orange-700"
                             : "border-amber-300 bg-amber-50 text-amber-700"
-                  }`}>
+                    }`}>
                     {appData.status || "No Application"}
                   </span>
                 </div>
@@ -833,18 +855,18 @@ function ApplicantDashboardContent() {
                         onClick={() => handleStepChange(s.step)}
                         aria-current={isCurrent ? "step" : undefined}
                         className={`group flex min-w-0 flex-1 min-h-11 flex-col items-center justify-center gap-1 text-center transition-all ${isCurrent
-                            ? "text-primary"
-                            : isDone
-                              ? "text-emerald-700"
-                              : "text-text-muted hover:text-text-secondary"
+                          ? "text-primary"
+                          : isDone
+                            ? "text-emerald-700"
+                            : "text-text-muted hover:text-text-secondary"
                           }`}
                       >
                         <span
                           className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-extrabold transition-all duration-300 ${isCurrent
-                              ? "border-primary bg-primary text-white shadow-sm scale-110"
-                              : isDone
-                                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                                : "border-border bg-background-secondary"
+                            ? "border-primary bg-primary text-white shadow-sm scale-110"
+                            : isDone
+                              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                              : "border-border bg-background-secondary"
                             }`}
                         >
                           {isDone ? <Check className="w-3.5 h-3.5" /> : String(s.step).padStart(2, "0")}
@@ -1396,8 +1418,8 @@ function ApplicantDashboardContent() {
                           onClick={() => saveProgress({ academicLevel: "Intermediate" })}
                           disabled={appData.status !== "Draft"}
                           className={`min-h-20 p-4 text-left border transition-all ${appData.academicLevel === "Intermediate"
-                              ? "border-primary bg-primary-light/50 font-bold"
-                              : "border-border hover:border-text-muted"
+                            ? "border-primary bg-primary-light/50 font-bold"
+                            : "border-border hover:border-text-muted"
                             }`}
                         >
                           <p className="text-sm text-text-primary font-bold">Intermediate (2 Years)</p>
@@ -1409,8 +1431,8 @@ function ApplicantDashboardContent() {
                           onClick={() => saveProgress({ academicLevel: "Undergraduate" })}
                           disabled={appData.status !== "Draft"}
                           className={`min-h-20 p-4 text-left border transition-all ${appData.academicLevel === "Undergraduate"
-                              ? "border-primary bg-primary-light/50 font-bold"
-                              : "border-border hover:border-text-muted"
+                            ? "border-primary bg-primary-light/50 font-bold"
+                            : "border-border hover:border-text-muted"
                             }`}
                         >
                           <p className="text-sm text-text-primary font-bold">Undergraduate (4 Years BS)</p>

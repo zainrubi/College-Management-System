@@ -28,10 +28,10 @@ async function registerApplicant(req, res) {
         return res.status(201).json({
             message: "Applicant registered successfully",
             applicant: {
-                id:        applicant._id,
-                fullName:  applicant.fullName,
-                phone:     applicant.phone,
-                email:     applicant.email,
+                id: applicant._id,
+                fullName: applicant.fullName,
+                phone: applicant.phone,
+                email: applicant.email,
                 createdAt: applicant.createdAt,
             },
         });

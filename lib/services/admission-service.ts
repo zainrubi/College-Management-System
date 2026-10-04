@@ -24,6 +24,10 @@ interface StoredApplicantAccount {
 
 export interface ApplicantApplicationData {
   appId?: string;
+  backendApplicationId?: string;
+  applicantId?: string;
+  backendUpdatedAt?: string;
+  localUpdatedAt?: number;
   status:
   | "Draft"
   | "Submitted"
@@ -162,7 +166,7 @@ export function getApplicantPortalDestination(_hasSubmittedApplication: boolean)
   return "/applicant";
 }
 
-export async function registerApplicant(input: ApplicantRegistrationInput): Promise<void> {
+export async function registerApplicant(input: ApplicantRegistrationInput): Promise<{ id: string }> {
   const phone = normalizePhone(input.phone);
   if (!isValidApplicantPhone(input.phone)) throw new Error("INVALID_PHONE");
   if (input.password.length < 6) throw new Error("INVALID_PASSWORD");
@@ -184,7 +188,10 @@ export async function registerApplicant(input: ApplicantRegistrationInput): Prom
     },
   );
 
-  const result = (await response.json().catch(() => ({}))) as { message?: string };
+  const result = (await response.json().catch(() => ({}))) as {
+    message?: string;
+    applicant?: { id?: string };
+  };
   if (!response.ok) {
     if (response.status === 409 && result.message?.startsWith("Mobile number")) {
       throw new Error("PHONE_ALREADY_REGISTERED");
@@ -194,6 +201,11 @@ export async function registerApplicant(input: ApplicantRegistrationInput): Prom
     }
     throw new Error(result.message || "REGISTRATION_FAILED");
   }
+
+  if (!result.applicant?.id) {
+    throw new Error("Registration succeeded but the applicant ID was missing from the server response");
+  }
+  return { id: result.applicant.id };
 }
 
 export async function loginApplicant(identifier: string, password: string): Promise<ApplicantLoginResult> {
@@ -219,17 +231,256 @@ export async function loginApplicant(identifier: string, password: string): Prom
   };
 }
 
-export async function getApplication(): Promise<ApplicantApplicationData | null> {
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const APPLICANT_ID_PATTERN = /^[a-f\d]{24}$/i;
+const APPLICANT_STATUSES: ApplicantApplicationData["status"][] = [
+  "Draft", "Submitted", "Under Review", "More Information Required", "On Hold",
+  "Merit Qualified", "Accepted", "Admitted", "Rejected",
+];
+const INTER_STATUSES: ApplicantApplicationData["interStatus"][] = [
+  "Awaiting Result", "Passed", "Not Applicable (Applying for Inter)",
+];
+const ACADEMIC_LEVELS: ApplicantApplicationData["academicLevel"][] = ["Intermediate", "Undergraduate"];
+const ID_TYPES: ApplicantApplicationData["idType"][] = ["CNIC", "B-Form / Juvenile Card"];
+
+function getLocalApplication(): ApplicantApplicationData | null {
   return readJson<ApplicantApplicationData | null>(APPLICANT_APPLICATION_STORAGE_KEY, null);
+}
+
+function getApplicationHeaders(applicantId: string): Record<string, string> {
+  if (!APPLICANT_ID_PATTERN.test(applicantId)) {
+    throw new Error("Your applicant session is missing a valid server applicant ID. Please sign in again.");
+  }
+  return { "x-applicant-id": applicantId };
+}
+
+async function readApiResponse(response: Response): Promise<Record<string, unknown>> {
+  return (await response.json().catch(() => ({}))) as Record<string, unknown>;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function readString(
+  source: Record<string, unknown>,
+  key: string,
+  fallback = "",
+): string {
+  const value = source[key];
+  return typeof value === "string" ? value : fallback;
+}
+
+function fromBackendApplication(value: unknown): ApplicantApplicationData {
+  if (!value || typeof value !== "object") {
+    throw new Error("The server returned an invalid application");
+  }
+
+  const application = asRecord(value);
+  const personal = asRecord(application.personal);
+  const contactAddress = asRecord(application.contactAddress);
+  const guardian = asRecord(application.guardian);
+  const academic = asRecord(application.academic);
+  const programCampus = asRecord(application.programCampus);
+  const documents = asRecord(application.documents);
+  const reviewSubmission = asRecord(application.reviewSubmission);
+  const status = application.status;
+  const idType = readString(personal, "idType");
+  const interStatus = readString(academic, "interStatus");
+  const academicLevel = readString(programCampus, "academicLevel");
+  const formData: ApplicantApplicationData = {
+    ...DEFAULT_APPLICANT_APPLICATION,
+    appId: readString(application, "applicationNumber") || undefined,
+    backendApplicationId: readString(application, "_id") || undefined,
+    applicantId: readString(application, "applicantId") || undefined,
+    backendUpdatedAt: readString(application, "updatedAt") || undefined,
+    status: APPLICANT_STATUSES.find((value) => value === status) || "Draft",
+    submittedAt: readString(reviewSubmission, "submittedAt") || undefined,
+    fullName: readString(personal, "fullName"),
+    fatherName: readString(guardian, "fatherName"),
+    motherName: readString(guardian, "motherName"),
+    dob: readString(personal, "dob"),
+    gender: readString(personal, "gender", DEFAULT_APPLICANT_APPLICATION.gender),
+    idType: ID_TYPES.find((value) => value === idType) || DEFAULT_APPLICANT_APPLICATION.idType,
+    idNumber: readString(personal, "idNumber"),
+    phone: readString(contactAddress, "phone"),
+    altPhone: readString(guardian, "altPhone"),
+    email: readString(contactAddress, "email"),
+    nationality: readString(personal, "nationality", DEFAULT_APPLICANT_APPLICATION.nationality),
+    religion: readString(personal, "religion", DEFAULT_APPLICANT_APPLICATION.religion),
+    bloodGroup: readString(personal, "bloodGroup"),
+    domicile: readString(contactAddress, "domicile", DEFAULT_APPLICANT_APPLICATION.domicile),
+    address: readString(contactAddress, "address"),
+    matricBoard: readString(academic, "matricBoard", DEFAULT_APPLICANT_APPLICATION.matricBoard),
+    matricRollNo: readString(academic, "matricRollNo"),
+    matricYear: readString(academic, "matricYear", DEFAULT_APPLICANT_APPLICATION.matricYear),
+    matricGroup: readString(academic, "matricGroup", DEFAULT_APPLICANT_APPLICATION.matricGroup),
+    matricTotalMarks: readString(academic, "matricTotalMarks", DEFAULT_APPLICANT_APPLICATION.matricTotalMarks),
+    matricObtainedMarks: readString(academic, "matricObtainedMarks"),
+    interStatus: INTER_STATUSES.find((value) => value === interStatus) || DEFAULT_APPLICANT_APPLICATION.interStatus,
+    interBoard: readString(academic, "interBoard"),
+    interRollNo: readString(academic, "interRollNo"),
+    interYear: readString(academic, "interYear"),
+    interTotalMarks: readString(academic, "interTotalMarks"),
+    interObtainedMarks: readString(academic, "interObtainedMarks"),
+    academicLevel: ACADEMIC_LEVELS.find((value) => value === academicLevel) || DEFAULT_APPLICANT_APPLICATION.academicLevel,
+    primaryProgram: readString(programCampus, "primaryProgram"),
+    secondaryProgram: readString(programCampus, "secondaryProgram"),
+    preferredShift: readString(programCampus, "preferredShift", DEFAULT_APPLICANT_APPLICATION.preferredShift),
+    documents: {
+      ...DEFAULT_APPLICANT_APPLICATION.documents,
+      matricResultCard: readString(documents, "matricResultCard") || undefined,
+      cnicOrBForm: readString(documents, "cnicOrBForm") || undefined,
+      guardianCnic: readString(documents, "guardianCnic") || undefined,
+      photo: readString(documents, "photo") || undefined,
+    },
+    undertakingAgreed: reviewSubmission.undertakingAgreed === true,
+  };
+  return formData;
+}
+
+export async function getApplication(applicantId?: string): Promise<ApplicantApplicationData | null> {
+  let localApplication = getLocalApplication();
+  if (!applicantId || !APPLICANT_ID_PATTERN.test(applicantId)) return localApplication;
+  if (localApplication?.applicantId && localApplication.applicantId !== applicantId) {
+    localApplication = null;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/applications/me`, {
+      headers: getApplicationHeaders(applicantId),
+      cache: "no-store",
+    });
+    if (response.status === 404) return localApplication;
+
+    const result = await readApiResponse(response);
+    if (!response.ok) {
+      throw new Error(typeof result.message === "string" ? result.message : "Unable to load your application");
+    }
+
+    const application = fromBackendApplication(result.application);
+    if (
+      localApplication &&
+      localApplication.backendApplicationId &&
+      application.backendApplicationId &&
+      localApplication.backendApplicationId === application.backendApplicationId &&
+      localApplication.localUpdatedAt &&
+      application.backendUpdatedAt &&
+      localApplication.localUpdatedAt > Date.parse(application.backendUpdatedAt)
+    ) {
+      return localApplication;
+    }
+    writeJson(APPLICANT_APPLICATION_STORAGE_KEY, application);
+    return application;
+  } catch (error) {
+    console.error("Failed to load applicant application:", error);
+    return localApplication;
+  }
 }
 
 export async function saveApplication(
   changes: Partial<ApplicantApplicationData>,
   current: ApplicantApplicationData = DEFAULT_APPLICANT_APPLICATION,
 ): Promise<ApplicantApplicationData> {
-  const updated = { ...current, ...changes };
+  const updated = { ...current, ...changes, localUpdatedAt: Date.now() };
   writeJson(APPLICANT_APPLICATION_STORAGE_KEY, updated);
   return updated;
+}
+
+export async function saveAdmissionDraft(
+  application: ApplicantApplicationData,
+  applicantId: string,
+): Promise<ApplicantApplicationData> {
+  const headers = {
+    ...getApplicationHeaders(applicantId),
+    "Content-Type": "application/json",
+  };
+  const existingResponse = await fetch(`${API_BASE_URL}/api/applications/me`, {
+    headers,
+    cache: "no-store",
+  });
+
+  let response: Response;
+  if (existingResponse.status === 404) {
+    response = await fetch(`${API_BASE_URL}/api/applications/draft`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(toBackendApplication(application)),
+    });
+  } else {
+    const existingResult = await readApiResponse(existingResponse);
+    if (!existingResponse.ok) {
+      throw new Error(typeof existingResult.message === "string"
+        ? existingResult.message
+        : "Unable to check for an existing application");
+    }
+    response = await fetch(`${API_BASE_URL}/api/applications/draft`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(toBackendApplication(application)),
+    });
+  }
+
+  const result = await readApiResponse(response);
+  if (!response.ok) {
+    throw new Error(typeof result.message === "string" ? result.message : "Unable to save your draft");
+  }
+
+  const savedApplication = fromBackendApplication(result.application);
+  writeJson(APPLICANT_APPLICATION_STORAGE_KEY, savedApplication);
+  return savedApplication;
+}
+
+function toBackendApplication(application: ApplicantApplicationData) {
+  return {
+    personal: {
+      fullName: application.fullName,
+      dob: application.dob,
+      gender: application.gender,
+      idType: application.idType,
+      idNumber: application.idNumber,
+      nationality: application.nationality,
+      religion: application.religion,
+      bloodGroup: application.bloodGroup,
+    },
+    contactAddress: {
+      phone: application.phone,
+      email: application.email,
+      domicile: application.domicile,
+      address: application.address,
+    },
+    guardian: {
+      fatherName: application.fatherName,
+      motherName: application.motherName,
+      altPhone: application.altPhone,
+    },
+    academic: {
+      matricBoard: application.matricBoard,
+      matricRollNo: application.matricRollNo,
+      matricYear: application.matricYear,
+      matricGroup: application.matricGroup,
+      matricTotalMarks: application.matricTotalMarks,
+      matricObtainedMarks: application.matricObtainedMarks,
+      interStatus: application.interStatus,
+      interBoard: application.interBoard,
+      interRollNo: application.interRollNo,
+      interYear: application.interYear,
+      interTotalMarks: application.interTotalMarks,
+      interObtainedMarks: application.interObtainedMarks,
+    },
+    programCampus: {
+      academicLevel: application.academicLevel,
+      primaryProgram: application.primaryProgram,
+      secondaryProgram: application.secondaryProgram,
+      preferredShift: application.preferredShift,
+    },
+    documents: application.documents,
+    reviewSubmission: {
+      undertakingAgreed: application.undertakingAgreed,
+    },
+  };
 }
 
 export async function submitApplication(

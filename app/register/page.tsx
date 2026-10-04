@@ -150,19 +150,19 @@ export default function ApplicantRegisterPage() {
       email: email || undefined,
       password,
     })
-      .then(() =>
-        saveApplication(
+      .then(async ({ id }) => {
+        await saveApplication(
           {
             fullName: fullName.trim(),
             phone: normalizedPhone,
             email: email || "",
             status: "Draft",
+            applicantId: id,
           },
           DEFAULT_APPLICANT_APPLICATION,
-        ),
-      )
-      .then(() => {
+        );
         login("applicant", {
+          id,
           name: fullName.trim(),
           email: email || "",
           phone: normalizedPhone,

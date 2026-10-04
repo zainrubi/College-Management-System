@@ -90,8 +90,10 @@ function validateForSubmission(application) {
     }
 
     const email = application.contactAddress?.email;
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-        errors["contactAddress.email"] = "Please provide a valid email address";
+    if (email !== undefined && email !== null && email !== "") {
+        if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+            errors["contactAddress.email"] = "Please provide a valid email address";
+        }
     }
 
     const totalMarks = Number(application.academic?.matricTotalMarks);
