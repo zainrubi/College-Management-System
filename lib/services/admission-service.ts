@@ -14,6 +14,15 @@ import type {
 export const APPLICANT_APPLICATION_STORAGE_KEY = "cms_applicant_admission_data";
 const AUTH_USER_STORAGE_KEY = "cms_demo_auth_user";
 const APPLICANT_ACCOUNTS_STORAGE_KEY = "cms_applicant_accounts";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/+$/, "") ||
+  (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "");
+
+function getApiUrl(path: string): string {
+  if (!API_BASE_URL) {
+    throw new Error("Backend API URL is not configured. Set NEXT_PUBLIC_API_URL and redeploy.");
+  }
+  return `${API_BASE_URL}${path}`;
+}
 
 interface StoredApplicantAccount {
   phone: string;
@@ -174,19 +183,16 @@ export async function registerApplicant(input: ApplicantRegistrationInput): Prom
     throw new Error("INVALID_EMAIL");
   }
 
-  const response = await fetch(
-    `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/applicants/register`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fullName: input.fullName.trim(),
-        phone,
-        email: input.email || undefined,
-        password: input.password,
-      }),
-    },
-  );
+  const response = await fetch(getApiUrl("/api/applicants/register"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fullName: input.fullName.trim(),
+      phone,
+      email: input.email || undefined,
+      password: input.password,
+    }),
+  });
 
   const result = (await response.json().catch(() => ({}))) as {
     message?: string;
@@ -231,7 +237,6 @@ export async function loginApplicant(identifier: string, password: string): Prom
   };
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const APPLICANT_ID_PATTERN = /^[a-f\d]{24}$/i;
 const APPLICANT_STATUSES: ApplicantApplicationData["status"][] = [
   "Draft", "Submitted", "Under Review", "More Information Required", "On Hold",
@@ -349,7 +354,7 @@ export async function getApplication(applicantId?: string): Promise<ApplicantApp
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api/applications/me`, {
+    const response = await fetch(getApiUrl("/api/applications/me"), {
       headers: getApplicationHeaders(applicantId),
       cache: "no-store",
     });
@@ -397,14 +402,14 @@ export async function saveAdmissionDraft(
     ...getApplicationHeaders(applicantId),
     "Content-Type": "application/json",
   };
-  const existingResponse = await fetch(`${API_BASE_URL}/api/applications/me`, {
+  const existingResponse = await fetch(getApiUrl("/api/applications/me"), {
     headers,
     cache: "no-store",
   });
 
   let response: Response;
   if (existingResponse.status === 404) {
-    response = await fetch(`${API_BASE_URL}/api/applications/draft`, {
+    response = await fetch(getApiUrl("/api/applications/draft"), {
       method: "POST",
       headers,
       body: JSON.stringify(toBackendApplication(application)),
@@ -416,7 +421,7 @@ export async function saveAdmissionDraft(
         ? existingResult.message
         : "Unable to check for an existing application");
     }
-    response = await fetch(`${API_BASE_URL}/api/applications/draft`, {
+    response = await fetch(getApiUrl("/api/applications/draft"), {
       method: "PUT",
       headers,
       body: JSON.stringify(toBackendApplication(application)),

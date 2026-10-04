@@ -10,7 +10,23 @@ const admissionApplicationRoutes = require("./routes/admissionApplicationRoutes"
 
 const app = express();
 
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN || true }));
+const allowedOrigins = new Set([
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  ...(process.env.FRONTEND_ORIGIN || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+]);
+
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.has(origin)) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
+}));
 app.use(express.json());
 app.use("/api/applicants", applicantRoutes);
 app.use("/api/applications", admissionApplicationRoutes);
