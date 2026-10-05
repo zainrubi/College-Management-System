@@ -669,14 +669,14 @@ function ApplicantDashboardContent() {
                     </p>
                   </div>
                   <span className={`inline-flex items-center px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider border ${appData.status === "Rejected"
-                      ? "border-rose-300 bg-rose-50 text-rose-700"
-                      : appData.status === "Submitted" || appData.status === "Under Review" || appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified"
-                        ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                        : appData.status === "More Information Required"
-                          ? "border-violet-300 bg-violet-50 text-violet-700"
-                          : appData.status === "On Hold"
-                            ? "border-orange-300 bg-orange-50 text-orange-700"
-                            : "border-amber-300 bg-amber-50 text-amber-700"
+                    ? "border-rose-300 bg-rose-50 text-rose-700"
+                    : appData.status === "Submitted" || appData.status === "Under Review" || appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified"
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                      : appData.status === "More Information Required"
+                        ? "border-violet-300 bg-violet-50 text-violet-700"
+                        : appData.status === "On Hold"
+                          ? "border-orange-300 bg-orange-50 text-orange-700"
+                          : "border-amber-300 bg-amber-50 text-amber-700"
                     }`}>
                     {appData.status || "No Application"}
                   </span>

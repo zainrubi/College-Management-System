@@ -15,11 +15,10 @@ const applicantSchema = new mongoose.Schema(
       required: [true, "Mobile number is required"],
       unique: true,
       trim: true,
-      match: [/^\d{11}$/, "Mobile number must contain exactly 11 digits"],
+      match: [/^[0-9]{11}$/, "Mobile number must contain exactly 11 digits"],
     },
     email: {
       type: String,
-      // sparse: true,
       trim: true,
       lowercase: true,
       match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Please provide a valid email address"],

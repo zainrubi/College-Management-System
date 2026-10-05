@@ -135,8 +135,7 @@ function normalizePhone(phone: string): string {
 }
 
 function isValidApplicantPhone(phone: string): boolean {
-  const digits = phone.replace(/\D/g, "");
-  return /^\d{11}$/.test(digits) && phone.trim() === digits;
+  return /^[0-9]{11}$/.test(phone);
 }
 
 export const DEFAULT_APPLICANT_APPLICATION: ApplicantApplicationData = {
@@ -176,10 +175,11 @@ export function getApplicantPortalDestination(_hasSubmittedApplication: boolean)
 }
 
 export async function registerApplicant(input: ApplicantRegistrationInput): Promise<{ id: string }> {
-  const phone = normalizePhone(input.phone);
-  if (!isValidApplicantPhone(input.phone)) throw new Error("INVALID_PHONE");
+  const phone = input.phone?.trim();
+  if (!isValidApplicantPhone(phone)) throw new Error("INVALID_PHONE");
   if (input.password.length < 6) throw new Error("INVALID_PASSWORD");
-  if (input.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) {
+  const trimmedEmail = input.email?.trim();
+  if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
     throw new Error("INVALID_EMAIL");
   }
 
@@ -189,21 +189,27 @@ export async function registerApplicant(input: ApplicantRegistrationInput): Prom
     body: JSON.stringify({
       fullName: input.fullName.trim(),
       phone,
-      email: input.email || undefined,
+      email: trimmedEmail || undefined,
       password: input.password,
     }),
   });
 
   const result = (await response.json().catch(() => ({}))) as {
+    success?: boolean;
+    code?: string;
     message?: string;
     applicant?: { id?: string };
   };
   if (!response.ok) {
-    if (response.status === 409 && result.message?.startsWith("Mobile number")) {
-      throw new Error("PHONE_ALREADY_REGISTERED");
-    }
-    if (response.status === 409 && result.message?.startsWith("Email")) {
-      throw new Error("EMAIL_ALREADY_REGISTERED");
+    if (
+      response.status === 409 &&
+      (result.code === "PHONE_ALREADY_REGISTERED" ||
+        result.message === "This phone number is already registered. Please sign in instead." ||
+        result.message?.toLowerCase().includes("phone"))
+    ) {
+      const err = new Error(result.message || "This phone number is already registered. Please sign in instead.");
+      (err as { code?: string }).code = "PHONE_ALREADY_REGISTERED";
+      throw err;
     }
     throw new Error(result.message || "REGISTRATION_FAILED");
   }
@@ -708,3 +714,5 @@ export async function getApplicationById(applicationId: string): Promise<Complet
 }
 
 export { APPLICATIONS_STORAGE_KEY };
+
+

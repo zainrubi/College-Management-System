@@ -5,27 +5,49 @@ async function registerApplicant(req, res) {
         const { fullName, phone, email, password } = req.body;
 
         // Validations
-        if (!fullName?.trim() || fullName.trim().length < 3)
-            return res.status(400).json({ message: "Full name must be at least 3 characters" });
+        if (!fullName || typeof fullName !== "string" || fullName.trim().length < 3) {
+            return res.status(400).json({
+                success: false,
+                message: "Full name must be at least 3 characters",
+            });
+        }
 
-        if (!/^\d{11}$/.test(phone))
-            return res.status(400).json({ message: "Phone must be exactly 11 digits" });
+        if (typeof phone !== "string" || !/^[0-9]{11}$/.test(phone)) {
+            return res.status(400).json({
+                success: false,
+                message: "Phone must be exactly 11 digits",
+            });
+        }
 
-        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-            return res.status(400).json({ message: "Invalid email address" });
+        const trimmedEmail = typeof email === "string" ? email.trim() : "";
+        if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid email address",
+            });
+        }
 
-        if (!password || password.length < 6)
-            return res.status(400).json({ message: "Password must be at least 6 characters" });
+        if (!password || typeof password !== "string" || password.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: "Password must be at least 6 characters",
+            });
+        }
 
-        // Create
-        const applicant = await Applicant.create({
+        // Create applicant payload (store email only if provided and non-empty)
+        const applicantData = {
             fullName: fullName.trim(),
             phone,
-            ...(email?.trim() && { email: email.trim().toLowerCase() }),
             password,
-        });
+        };
+        if (trimmedEmail) {
+            applicantData.email = trimmedEmail.toLowerCase();
+        }
+
+        const applicant = await Applicant.create(applicantData);
 
         return res.status(201).json({
+            success: true,
             message: "Applicant registered successfully",
             applicant: {
                 id: applicant._id,
@@ -37,23 +59,43 @@ async function registerApplicant(req, res) {
         });
 
     } catch (error) {
-        // Duplicate field
+        // Handle MongoDB duplicate-key error code 11000
         if (error?.code === 11000) {
-            const field = Object.keys(error.keyPattern || {})[0];
-            return res.status(409).json({
-                message: `${field === "email" ? "Email" : "Phone"} already registered`
+            const isDuplicatePhone = Boolean(
+                error.keyPattern?.phone ||
+                error.keyValue?.phone ||
+                (typeof error.message === "string" && error.message.includes("phone_1"))
+            );
+
+            if (isDuplicatePhone) {
+                return res.status(409).json({
+                    success: false,
+                    code: "PHONE_ALREADY_REGISTERED",
+                    message: "This phone number is already registered. Please sign in instead.",
+                });
+            }
+
+            console.error("Non-phone duplicate key error:", error.message);
+            return res.status(500).json({
+                success: false,
+                message: "Server error — try again",
             });
         }
 
         // Mongoose validation
-        if (error?.name === "ValidationError")
+        if (error?.name === "ValidationError") {
             return res.status(400).json({
-                message: Object.values(error.errors)[0]?.message || "Invalid data"
+                success: false,
+                message: Object.values(error.errors)[0]?.message || "Invalid data",
             });
+        }
 
         // Server error
         console.error("Registration failed:", error.message);
-        return res.status(500).json({ message: "Server error — try again" });
+        return res.status(500).json({
+            success: false,
+            message: "Server error — try again",
+        });
     }
 }
 

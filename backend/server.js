@@ -47,9 +47,28 @@ app.use((error, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
+async function ensureApplicantIndexes() {
+  try {
+    const Applicant = require("./models/Applicant");
+    const indexes = await Applicant.collection.indexes();
+    const emailIndex = indexes.find(
+      (idx) => idx.name === "email_1" || (idx.key && idx.key.email && idx.unique)
+    );
+    if (emailIndex) {
+      await Applicant.collection.dropIndex(emailIndex.name);
+      console.log(`Dropped legacy unique email index (${emailIndex.name}) from applicants collection`);
+    }
+  } catch (error) {
+    if (error.codeName !== "IndexNotFound" && error.code !== 27) {
+      console.warn("Notice checking applicant indexes:", error.message);
+    }
+  }
+}
+
 async function startServer() {
   try {
     await connectDB();
+    await ensureApplicantIndexes();
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });

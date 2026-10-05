@@ -36,7 +36,7 @@ function normalizePKPhone(raw: string): string {
 
 /** Returns true if the phone contains exactly 11 digits */
 function isValidPKPhone(raw: string): boolean {
-  return /^\d{11}$/.test(raw.replace(/\D/g, ""));
+  return /^[0-9]{11}$/.test(raw);
 }
 
 /** Filter non-numeric characters and limit to 11 digits while typing */
@@ -147,7 +147,7 @@ export default function ApplicantRegisterPage() {
     registerApplicant({
       fullName: fullName.trim(),
       phone: normalizedPhone,
-      email: email || undefined,
+      email: email.trim() || undefined,
       password,
     })
       .then(async ({ id }) => {
@@ -155,7 +155,7 @@ export default function ApplicantRegisterPage() {
           {
             fullName: fullName.trim(),
             phone: normalizedPhone,
-            email: email || "",
+            email: email.trim() || "",
             status: "Draft",
             applicantId: id,
           },
@@ -164,7 +164,7 @@ export default function ApplicantRegisterPage() {
         login("applicant", {
           id,
           name: fullName.trim(),
-          email: email || "",
+          email: email.trim() || "",
           phone: normalizedPhone,
         });
         setIsSubmitting(false);
@@ -173,12 +173,25 @@ export default function ApplicantRegisterPage() {
       })
       .catch((err: unknown) => {
         setIsSubmitting(false);
-        if (err instanceof Error && err.message === "PHONE_ALREADY_REGISTERED") {
+        const errObj = err as { code?: string; message?: string };
+        const isDuplicatePhone =
+          errObj?.code === "PHONE_ALREADY_REGISTERED" ||
+          errObj?.message === "PHONE_ALREADY_REGISTERED" ||
+          errObj?.message === "This phone number is already registered. Please sign in instead." ||
+          Boolean(errObj?.message && /phone.*registered/i.test(errObj.message));
+
+        if (isDuplicatePhone) {
           setDuplicatePhone(true);
           setDuplicateAnimKey((k) => k + 1);
+          setFieldErrors((prev) => ({
+            ...prev,
+            phone: "This phone number is already registered. Please sign in instead.",
+          }));
           return;
         }
-        setError("Unable to create your applicant account. Please try again.");
+
+        const msg = err instanceof Error ? err.message : "";
+        setError(msg && msg !== "REGISTRATION_FAILED" ? msg : "Unable to create your applicant account. Please try again.");
       });
   };
 
@@ -296,7 +309,10 @@ export default function ApplicantRegisterPage() {
                         onChange={(e) => {
                           const formatted = filterPhoneInput(e.target.value);
                           setPhone(formatted);
-                          if (duplicatePhone) setDuplicatePhone(false);
+                          if (duplicatePhone) {
+                            setDuplicatePhone(false);
+                            setFieldErrors((prev) => ({ ...prev, phone: "" }));
+                          }
                           if (fieldErrors.phone) {
                             validateField("phone", formatted);
                           }
@@ -308,10 +324,22 @@ export default function ApplicantRegisterPage() {
                         maxLength={11}
                       />
                     </FormField>
-                    <p className="text-[11px] text-text-muted pl-1">
-                      11-digit mobile number (digits only, e.g. 03001234567).
-                      This will be your <span className="font-semibold text-primary">login ID</span>.
-                    </p>
+                    {duplicatePhone ? (
+                      <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-1">
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span>This phone number is already registered. Please sign in instead.</span>
+                        </div>
+                        <Link href="/login" className="inline-flex items-center gap-1 font-bold text-primary hover:underline whitespace-nowrap text-xs">
+                          Sign In &rarr;
+                        </Link>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-text-muted pl-1">
+                        11-digit mobile number (digits only, e.g. 03001234567).
+                        This will be your <span className="font-semibold text-primary">login ID</span>.
+                      </p>
+                    )}
                   </div>
 
                   {/* Email — OPTIONAL */}
@@ -400,8 +428,8 @@ export default function ApplicantRegisterPage() {
                           ))}
                         </div>
                         <p className={`text-[11px] font-semibold ${strength.level === 3 ? "text-emerald-600"
-                            : strength.level === 2 ? "text-amber-600"
-                              : "text-rose-600"
+                          : strength.level === 2 ? "text-amber-600"
+                            : "text-rose-600"
                           }`}>
                           {strength.label}
                           {strength.level === 1 && " — use letters, numbers & symbols"}
@@ -518,10 +546,9 @@ export default function ApplicantRegisterPage() {
             >
               <X className="w-4 h-4" />
             </button>
-            <Alert variant="warning" title="Account Already Exists" className="rounded-none border-0 bg-transparent p-0">
+            <Alert variant="warning" title="Phone Already Registered" className="rounded-none border-0 bg-transparent p-0">
               <p className="text-sm leading-relaxed">
-                An applicant account already exists with this phone number.
-                Please sign in to continue your admission application.
+                This phone number is already registered. Please sign in instead.
               </p>
               <div className="flex flex-col sm:flex-row gap-2 pt-4">
                 <Button
