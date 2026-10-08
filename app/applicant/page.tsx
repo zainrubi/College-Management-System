@@ -58,12 +58,36 @@ type ApplicationData = ApplicantApplicationData;
 
 const DEFAULT_APP_DATA: ApplicationData = DEFAULT_APPLICANT_APPLICATION;
 
+const INTERMEDIATE_PROGRAM_OPTIONS = [
+  { value: "FSc Pre-Medical", label: "FSc Pre-Medical" },
+  { value: "FSc Pre-Engineering", label: "FSc Pre-Engineering" },
+  { value: "ICS (Computer Science)", label: "ICS (Physics & Computer Science)" },
+  { value: "I.Com (Commerce)", label: "I.Com (Commerce & Accounts)" },
+];
+
+const UNDERGRADUATE_PROGRAM_OPTIONS = [
+  { value: "BS Computer Science (BSCS)", label: "BS Computer Science (BSCS)" },
+  { value: "BS Software Engineering (BSSE)", label: "BS Software Engineering (BSSE)" },
+  { value: "Bachelor of Business Administration (BBA)", label: "Bachelor of Business Administration (BBA)" },
+];
+
+function isProgramCompatibleWithLevel(program: string, level: string): boolean {
+  if (!program || program === "None") return true;
+  if (level === "Intermediate") {
+    return INTERMEDIATE_PROGRAM_OPTIONS.some((p) => p.value === program);
+  }
+  if (level === "Undergraduate") {
+    return UNDERGRADUATE_PROGRAM_OPTIONS.some((p) => p.value === program);
+  }
+  return false;
+}
+
 const FORM_STEPS = [
   { step: 1, title: "Personal", fullTitle: "Personal Information", description: "Identity & personal details" },
   { step: 2, title: "Contact & Address", fullTitle: "Contact & Address", description: "Phone, email & address" },
   { step: 3, title: "Guardian", fullTitle: "Parent / Guardian", description: "Emergency contact" },
   { step: 4, title: "Academic", fullTitle: "Academic Information", description: "Educational history" },
-  { step: 5, title: "Preferences", fullTitle: "Program & Preferences", description: "Discipline & shift" },
+  { step: 5, title: "Preferences", fullTitle: "Program & Preferences", description: "Academic program choices" },
   { step: 6, title: "Review & Submit", fullTitle: "Documents & Review", description: "Verification & submit" },
 ];
 
@@ -145,6 +169,42 @@ function ApplicantDashboardContent() {
     const updated = { ...appData, ...newData };
     setAppData(updated);
     void saveApplication(newData, appData);
+  };
+
+  // Academic level selection helper with automatic incompatible program reset
+  const handleAcademicLevelSelect = (level: "Intermediate" | "Undergraduate") => {
+    if (appData.status !== "Draft") return;
+    if (appData.academicLevel === level) return;
+
+    const updates: Partial<ApplicationData> = {
+      academicLevel: level,
+    };
+
+    // If Primary Program is incompatible with the newly selected level, reset it
+    if (!isProgramCompatibleWithLevel(appData.primaryProgram, level)) {
+      updates.primaryProgram = "";
+    }
+
+    // If Secondary Program is incompatible with the newly selected level, reset to "None"
+    if (
+      appData.secondaryProgram &&
+      appData.secondaryProgram !== "None" &&
+      !isProgramCompatibleWithLevel(appData.secondaryProgram, level)
+    ) {
+      updates.secondaryProgram = "None";
+    }
+
+    // Clear validation errors for academicLevel and primaryProgram if reset
+    if (stepErrors.academicLevel || stepErrors.primaryProgram) {
+      setStepErrors((prev) => {
+        const copy = { ...prev };
+        delete copy.academicLevel;
+        delete copy.primaryProgram;
+        return copy;
+      });
+    }
+
+    saveProgress(updates);
   };
 
   const handleSaveDraft = () => {
@@ -251,9 +311,11 @@ function ApplicantDashboardContent() {
       }
       if (!appData.primaryProgram) {
         errors.primaryProgram = "Please select a primary program preference.";
-      }
-      if (!appData.preferredShift) {
-        errors.preferredShift = "Please select a preferred shift.";
+      } else if (
+        appData.academicLevel &&
+        !isProgramCompatibleWithLevel(appData.primaryProgram, appData.academicLevel)
+      ) {
+        errors.primaryProgram = "Selected primary program is not available for this academic level.";
       }
     } else if (step === 6) {
       if (!appData.documents.matricResultCard) {
@@ -1408,99 +1470,188 @@ function ApplicantDashboardContent() {
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-6">
 
-                    {/* Academic Level */}
-                    <FormField label="Academic Level" required error={stepErrors.academicLevel} className="sm:col-span-2">
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {/* Academic Level Question & Clear 2-Card Selection */}
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm font-bold text-text-primary">
+                          What type of program are you applying for? <span className="text-rose-500">*</span>
+                        </label>
+                        <p className="text-xs text-text-secondary mt-0.5">
+                          Select one academic level to see the programs available for it.
+                        </p>
+                      </div>
+
+                      <div
+                        className="grid grid-cols-1 gap-4 sm:grid-cols-2"
+                        role="radiogroup"
+                        aria-label="Academic Level Selection"
+                      >
+                        {/* Option 1: Intermediate */}
                         <button
                           type="button"
-                          onClick={() => saveProgress({ academicLevel: "Intermediate" })}
+                          role="radio"
+                          aria-checked={appData.academicLevel === "Intermediate"}
+                          onClick={() => handleAcademicLevelSelect("Intermediate")}
                           disabled={appData.status !== "Draft"}
-                          className={`min-h-20 p-4 text-left border transition-all ${appData.academicLevel === "Intermediate"
-                            ? "border-primary bg-primary-light/50 font-bold"
-                            : "border-border hover:border-text-muted"
-                            }`}
+                          className={`group relative text-left p-5 border-2 transition-all cursor-pointer rounded-sm ${
+                            appData.academicLevel === "Intermediate"
+                              ? "border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/20"
+                              : "border-border bg-white hover:border-primary/40 hover:bg-background-secondary/30"
+                          } ${appData.status !== "Draft" ? "cursor-not-allowed opacity-60" : ""}`}
                         >
-                          <p className="text-sm text-text-primary font-bold">Intermediate (2 Years)</p>
-                          <p className="text-xs text-text-secondary mt-0.5">FSc Pre-Medical, Pre-Engg, ICS, I.Com</p>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1.5 flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-bold text-text-primary">
+                                  Intermediate — 2 Years
+                                </span>
+                                {appData.academicLevel === "Intermediate" && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                                    <Check className="w-3 h-3" /> Selected
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-text-secondary leading-relaxed">
+                                FSc Pre-Medical • FSc Pre-Engineering • ICS • I.Com
+                              </p>
+                            </div>
+                            <div
+                              className={`shrink-0 mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                appData.academicLevel === "Intermediate"
+                                  ? "border-primary bg-primary text-white"
+                                  : "border-border group-hover:border-primary/50"
+                              }`}
+                            >
+                              {appData.academicLevel === "Intermediate" && (
+                                <div className="w-2 h-2 rounded-full bg-white" />
+                              )}
+                            </div>
+                          </div>
                         </button>
 
+                        {/* Option 2: Undergraduate */}
                         <button
                           type="button"
-                          onClick={() => saveProgress({ academicLevel: "Undergraduate" })}
+                          role="radio"
+                          aria-checked={appData.academicLevel === "Undergraduate"}
+                          onClick={() => handleAcademicLevelSelect("Undergraduate")}
                           disabled={appData.status !== "Draft"}
-                          className={`min-h-20 p-4 text-left border transition-all ${appData.academicLevel === "Undergraduate"
-                            ? "border-primary bg-primary-light/50 font-bold"
-                            : "border-border hover:border-text-muted"
-                            }`}
+                          className={`group relative text-left p-5 border-2 transition-all cursor-pointer rounded-sm ${
+                            appData.academicLevel === "Undergraduate"
+                              ? "border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/20"
+                              : "border-border bg-white hover:border-primary/40 hover:bg-background-secondary/30"
+                          } ${appData.status !== "Draft" ? "cursor-not-allowed opacity-60" : ""}`}
                         >
-                          <p className="text-sm text-text-primary font-bold">Undergraduate (4 Years BS)</p>
-                          <p className="text-xs text-text-secondary mt-0.5">BS CS, BS SE, BBA Degrees</p>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1.5 flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-bold text-text-primary">
+                                  Undergraduate — 4 Years BS
+                                </span>
+                                {appData.academicLevel === "Undergraduate" && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                                    <Check className="w-3 h-3" /> Selected
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-text-secondary leading-relaxed">
+                                BS Computer Science • BS Software Engineering • BBA
+                              </p>
+                            </div>
+                            <div
+                              className={`shrink-0 mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                appData.academicLevel === "Undergraduate"
+                                  ? "border-primary bg-primary text-white"
+                                  : "border-border group-hover:border-primary/50"
+                              }`}
+                            >
+                              {appData.academicLevel === "Undergraduate" && (
+                                <div className="w-2 h-2 rounded-full bg-white" />
+                              )}
+                            </div>
+                          </div>
                         </button>
                       </div>
-                    </FormField>
 
-                    {/* Primary Program Choice */}
-                    <FormField label="Primary Choice Program" required error={stepErrors.primaryProgram}>
-                      <Select
-                        value={appData.primaryProgram}
-                        onChange={(e) => saveProgress({ primaryProgram: e.target.value })}
-                        disabled={appData.status !== "Draft"}
-                      >
-                        {appData.academicLevel === "Intermediate" ? (
-                          <>
-                            <option value="ICS (Computer Science)">ICS (Physics & Computer Science)</option>
-                            <option value="FSc Pre-Medical">FSc Pre-Medical</option>
-                            <option value="FSc Pre-Engineering">FSc Pre-Engineering</option>
-                            <option value="I.Com (Commerce)">I.Com (Commerce & Accounts)</option>
-                          </>
-                        ) : (
-                          <>
-                            <option value="BS Computer Science (BSCS)">BS Computer Science (BSCS)</option>
-                            <option value="BS Software Engineering (BSSE)">BS Software Engineering (BSSE)</option>
-                            <option value="Bachelor of Business Administration (BBA)">Bachelor of Business Administration (BBA)</option>
-                          </>
-                        )}
-                      </Select>
-                    </FormField>
+                      {stepErrors.academicLevel && (
+                        <p className="text-xs text-rose-500 font-medium flex items-center gap-1 mt-1">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          {stepErrors.academicLevel}
+                        </p>
+                      )}
+                    </div>
 
-                    {/* Secondary Preference */}
-                    <FormField label="Secondary Preference Program">
-                      <Select
-                        value={appData.secondaryProgram}
-                        onChange={(e) => saveProgress({ secondaryProgram: e.target.value })}
-                        disabled={appData.status !== "Draft"}
-                      >
-                        <option value="None">None (Single Preference)</option>
-                        {appData.academicLevel === "Intermediate" ? (
-                          <>
-                            <option value="ICS (Computer Science)">ICS (Computer Science)</option>
-                            <option value="FSc Pre-Engineering">FSc Pre-Engineering</option>
-                            <option value="FSc Pre-Medical">FSc Pre-Medical</option>
-                            <option value="I.Com (Commerce)">I.Com (Commerce)</option>
-                          </>
-                        ) : (
-                          <>
-                            <option value="BS Software Engineering (BSSE)">BS Software Engineering (BSSE)</option>
-                            <option value="BS Computer Science (BSCS)">BS Computer Science (BSCS)</option>
-                            <option value="Bachelor of Business Administration (BBA)">Bachelor of Business Administration (BBA)</option>
-                          </>
-                        )}
-                      </Select>
-                    </FormField>
+                    {/* Program Choices (Filtered strictly by selected level) */}
+                    {appData.academicLevel ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-2">
+                        {/* Primary Choice Program (Required) */}
+                        <FormField
+                          label="Primary Choice Program"
+                          required
+                          error={stepErrors.primaryProgram}
+                          helperText={`Select your primary discipline for ${appData.academicLevel} studies`}
+                        >
+                          <Select
+                            value={appData.primaryProgram || ""}
+                            onChange={(e) => {
+                              saveProgress({ primaryProgram: e.target.value });
+                              if (stepErrors.primaryProgram) {
+                                setStepErrors((prev) => {
+                                  const copy = { ...prev };
+                                  delete copy.primaryProgram;
+                                  return copy;
+                                });
+                              }
+                            }}
+                            disabled={appData.status !== "Draft"}
+                          >
+                            <option value="" disabled>-- Select Primary Program --</option>
+                            {(appData.academicLevel === "Intermediate"
+                              ? INTERMEDIATE_PROGRAM_OPTIONS
+                              : UNDERGRADUATE_PROGRAM_OPTIONS
+                            ).map((prog) => (
+                              <option key={prog.value} value={prog.value}>
+                                {prog.label}
+                              </option>
+                            ))}
+                          </Select>
+                        </FormField>
 
-                    {/* Shift */}
-                    <FormField label="Preferred Campus Shift" required error={stepErrors.preferredShift}>
-                      <Select
-                        value={appData.preferredShift}
-                        onChange={(e) => saveProgress({ preferredShift: e.target.value })}
-                        disabled={appData.status !== "Draft"}
-                      >
-                        <option value="Morning">Morning Shift (8:00 AM - 1:30 PM)</option>
-                        <option value="Evening">Evening Shift (1:30 PM - 5:00 PM)</option>
-                      </Select>
-                    </FormField>
+                        {/* Secondary Preference Program (Optional) */}
+                        <FormField
+                          label="Secondary Preference Program"
+                          helperText="Optional alternative choice within the selected academic level"
+                        >
+                          <Select
+                            value={appData.secondaryProgram || "None"}
+                            onChange={(e) => saveProgress({ secondaryProgram: e.target.value })}
+                            disabled={appData.status !== "Draft"}
+                          >
+                            <option value="None">None (Single Preference)</option>
+                            {(appData.academicLevel === "Intermediate"
+                              ? INTERMEDIATE_PROGRAM_OPTIONS
+                              : UNDERGRADUATE_PROGRAM_OPTIONS
+                            ).map((prog) => (
+                              <option key={prog.value} value={prog.value}>
+                                {prog.label}
+                              </option>
+                            ))}
+                          </Select>
+                        </FormField>
+                      </div>
+                    ) : (
+                      <div className="p-6 border border-dashed border-border bg-background-secondary/50 text-center rounded-sm">
+                        <GraduationCap className="w-8 h-8 text-primary/60 mx-auto mb-2" />
+                        <p className="text-sm font-semibold text-text-primary">
+                          Please select an academic level above
+                        </p>
+                        <p className="text-xs text-text-secondary mt-1">
+                          Choose whether you are applying for Intermediate (2 Years) or Undergraduate (4 Years BS) to see the programs available.
+                        </p>
+                      </div>
+                    )}
 
                   </div>
                 </div>
@@ -1623,10 +1774,12 @@ function ApplicantDashboardContent() {
                           <span className="font-semibold text-text-primary block">Primary Discipline</span>
                           {appData.primaryProgram} ({appData.academicLevel})
                         </div>
-                        <div>
-                          <span className="font-semibold text-text-primary block">Preferred Shift</span>
-                          {appData.preferredShift || "Morning"}
-                        </div>
+                        {appData.secondaryProgram && appData.secondaryProgram !== "None" ? (
+                          <div>
+                            <span className="font-semibold text-text-primary block">Secondary Preference</span>
+                            {appData.secondaryProgram}
+                          </div>
+                        ) : null}
                         <div>
                           <span className="font-semibold text-text-primary block">Matric Marks</span>
                           {appData.matricObtainedMarks} / {appData.matricTotalMarks} ({appData.matricBoard})

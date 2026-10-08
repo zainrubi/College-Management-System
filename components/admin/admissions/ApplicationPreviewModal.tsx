@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -58,10 +58,51 @@ export function ApplicationPreviewModal({
   const [activeAction, setActiveAction] = useState<
     "none" | "accept_confirm" | "reject_form" | "request_info_form" | "hold_form"
   >("none");
+  const [scrollTrigger, setScrollTrigger] = useState(0);
   const [actionReason, setActionReason] = useState("");
   const [rejectionPreset, setRejectionPreset] = useState("Academic criteria not fulfilled");
   const [rejectionError, setRejectionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const actionPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen || !application || !activeAction || activeAction === "none" || !actionPanelRef.current) return;
+
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
+
+    // Use requestAnimationFrame to ensure the panel has rendered in DOM before scrolling
+    const frameId = requestAnimationFrame(() => {
+      actionPanelRef.current?.scrollIntoView({
+        behavior,
+        block: "start",
+      });
+    });
+
+    // Auto-focus first input/textarea after smooth scroll begins without a second scroll jump
+    const timer = setTimeout(() => {
+      const field = actionPanelRef.current?.querySelector<
+        HTMLTextAreaElement | HTMLInputElement
+      >("textarea, input:not([type='hidden'])");
+      field?.focus({ preventScroll: true });
+    }, prefersReducedMotion ? 50 : 300);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      clearTimeout(timer);
+    };
+  }, [isOpen, application, activeAction, scrollTrigger]);
+
+  // Reset active action and form fields whenever modal closes or student changes
+  useEffect(() => {
+    setActiveAction("none");
+    setActionReason("");
+    setRejectionError(null);
+  }, [isOpen, application?.id]);
 
   if (!isOpen || !application) return null;
 
@@ -77,8 +118,15 @@ export function ApplicationPreviewModal({
 
   const primaryAcademic = application.academicHistory[0] || null;
 
-  const handleOpenFullDetail = () => {
+  const handleModalClose = () => {
+    setActiveAction("none");
+    setActionReason("");
+    setRejectionError(null);
     onClose();
+  };
+
+  const handleOpenFullDetail = () => {
+    handleModalClose();
     router.push(`/admin/applications/${application.id}`);
   };
 
@@ -153,6 +201,7 @@ export function ApplicationPreviewModal({
     setActionReason("");
     setRejectionError(null);
     setActiveAction(action);
+    setScrollTrigger((prev) => prev + 1);
   };
 
   return (
@@ -160,7 +209,7 @@ export function ApplicationPreviewModal({
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity animate-in fade-in duration-200"
-        onClick={onClose}
+        onClick={handleModalClose}
       />
 
       {/* Main Modal Container */}
@@ -194,7 +243,7 @@ export function ApplicationPreviewModal({
               {statusConfig.label}
             </span>
             <button
-              onClick={onClose}
+              onClick={handleModalClose}
               className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/15 transition-colors"
               aria-label="Close modal"
             >
@@ -245,7 +294,10 @@ export function ApplicationPreviewModal({
 
           {/* Action Overlay / Prompt Form when action is active */}
           {activeAction !== "none" && (
-            <div className="portal-dialog-in bg-white rounded-xl p-4 sm:p-5 border-2 border-primary shadow-md">
+            <div
+              ref={actionPanelRef}
+              className="scroll-mt-4 portal-dialog-in bg-white rounded-xl p-4 sm:p-5 border-2 border-primary shadow-md"
+            >
               {activeAction === "accept_confirm" && (
                 <div>
                   <div className="flex items-start gap-3">
@@ -692,13 +744,12 @@ export function ApplicationPreviewModal({
                           <span className="font-medium text-text-primary truncate text-[11px]">{doc.title || doc.type}</span>
                         </div>
                         <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 border ${
-                            isVerified
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 border ${isVerified
                               ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                               : isReupload
-                              ? "bg-purple-50 text-purple-700 border-purple-200"
-                              : "bg-amber-50 text-amber-700 border-amber-200"
-                          }`}
+                                ? "bg-purple-50 text-purple-700 border-purple-200"
+                                : "bg-amber-50 text-amber-700 border-amber-200"
+                            }`}
                         >
                           {isVerified ? "Verified" : isReupload ? "Re-upload" : "Pending Review"}
                         </span>
@@ -766,7 +817,7 @@ export function ApplicationPreviewModal({
                 size="sm"
                 className="text-orange-700 border-orange-200 hover:bg-orange-50"
                 leftIcon={<PauseCircle className="w-3.5 h-3.5" />}
-                  onClick={() => openAction("hold_form")}
+                onClick={() => openAction("hold_form")}
               >
                 Put On Hold
               </Button>
@@ -775,7 +826,7 @@ export function ApplicationPreviewModal({
             <Button
               variant="ghost"
               size="sm"
-              onClick={onClose}
+              onClick={handleModalClose}
               className="text-text-secondary hover:text-text-primary"
             >
               Close
