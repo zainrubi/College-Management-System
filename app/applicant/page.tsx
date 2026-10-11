@@ -42,6 +42,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Alert } from "@/components/ui/Alert";
 import { LoadingState } from "@/components/ui/LoadingState";
 import {
+  ApplicationSubmissionError,
   DEFAULT_APPLICANT_APPLICATION,
   getApplication,
   saveAdmissionDraft,
@@ -121,6 +122,8 @@ function ApplicantDashboardContent() {
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [saveToastIsError, setSaveToastIsError] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     const requestedTab = searchParams.get("tab");
@@ -361,7 +364,9 @@ function ApplicantDashboardContent() {
   };
 
   // Submit Application
-  const handleSubmitApplication = () => {
+  const handleSubmitApplication = async () => {
+    if (isSubmitting) return;
+
     for (let s = 1; s <= 6; s++) {
       const { valid, errors } = validateStep(s);
       if (!valid) {
@@ -383,12 +388,56 @@ function ApplicantDashboardContent() {
       return;
     }
 
-    void submitApplication(appData).then((finalData) => {
+    setIsSubmitting(true);
+    setSubmitError(null);
+    setStepErrorMessage(null);
+
+    try {
+      const finalData = await submitApplication(appData, user?.id);
       setAppData(finalData);
       setActiveTab("status");
-      setSaveToast("Application submitted successfully! Admissions can now review it.");
-      setTimeout(() => setSaveToast(null), 4000);
-    });
+      setSaveToastIsError(false);
+      setSaveToast(`Application submitted successfully! Official ID: ${finalData.appId}`);
+      setSubmitError(null);
+      setStepErrorMessage(null);
+      setTimeout(() => setSaveToast(null), 5000);
+    } catch (error: unknown) {
+      let message = "Unable to submit your application. Please try again.";
+      if (error instanceof ApplicationSubmissionError) {
+        message = error.message;
+        if (error.fieldErrors) {
+          const mappedErrors: Record<string, string> = {};
+          let targetStep = 6;
+          for (const [key, msg] of Object.entries(error.fieldErrors)) {
+            const shortKey = key.split(".").pop() || key;
+            mappedErrors[shortKey] = msg;
+            if (key.startsWith("personal")) targetStep = Math.min(targetStep, 1);
+            else if (key.startsWith("contactAddress")) targetStep = Math.min(targetStep, 2);
+            else if (key.startsWith("guardian")) targetStep = Math.min(targetStep, 3);
+            else if (key.startsWith("academic")) targetStep = Math.min(targetStep, 4);
+            else if (key.startsWith("programCampus")) targetStep = Math.min(targetStep, 5);
+          }
+          setStepErrors((prev) => ({ ...prev, ...mappedErrors }));
+          setFormStep(targetStep);
+        }
+        if (error.code === "ALREADY_SUBMITTED") {
+          void getApplication(user?.id).then((fresh) => {
+            if (fresh) setAppData(fresh);
+          });
+        }
+      } else if (error instanceof Error) {
+        message = error.message;
+      }
+
+      setSubmitError(message);
+      setStepErrorMessage(message);
+      setSaveToastIsError(true);
+      setSaveToast(message);
+      setTimeout(() => setSaveToast(null), 6000);
+      window.scrollTo({ top: 260, behavior: "smooth" });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const hasApplication = Boolean(
@@ -1805,15 +1854,23 @@ function ApplicantDashboardContent() {
                   </div>
 
                   {/* Section D: Final Submission Action */}
+                  {submitError && (
+                    <div className="portal-validation p-4 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-3">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                      <span>{submitError}</span>
+                    </div>
+                  )}
+
                   {appData.status === "Draft" ? (
                     <Button
                       variant="primary"
                       className="w-full sm:w-auto px-8 py-3 font-bold uppercase tracking-wider text-xs rounded-none"
-                      disabled={!appData.undertakingAgreed || !appData.fullName || !appData.idNumber}
+                      disabled={isSubmitting || !appData.undertakingAgreed || !appData.fullName || !appData.idNumber}
                       onClick={handleSubmitApplication}
-                      rightIcon={<Send className="w-4 h-4" />}
+                      isLoading={isSubmitting}
+                      rightIcon={!isSubmitting ? <Send className="w-4 h-4" /> : undefined}
                     >
-                      Submit Official Admission Application
+                      {isSubmitting ? "Submitting Application..." : "Submit Official Admission Application"}
                     </Button>
                   ) : (
                     <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">

@@ -130,6 +130,15 @@ function newApplicationNumber() {
     return `APP-${new Date().getFullYear()}-${randomInt(1000, 10000)}`;
 }
 
+async function generateUniqueApplicationNumber() {
+    for (let attempts = 0; attempts < 10; attempts++) {
+        const candidate = newApplicationNumber();
+        const existing = await AdmissionApplication.findOne({ applicationNumber: candidate });
+        if (!existing) return candidate;
+    }
+    return `APP-${new Date().getFullYear()}-${randomInt(10000, 100000)}`;
+}
+
 function handleControllerError(res, error, operation) {
     if (error?.code === 11000) {
         return res.status(409).json({ message: "An application with this number already exists" });
@@ -218,11 +227,18 @@ async function submitAdmissionApplication(req, res) {
     }
 
     try {
-        const application = await AdmissionApplication.findOne({ applicantId, status: "Draft" }).sort({ updatedAt: -1 });
+        let application = await AdmissionApplication.findOne({ applicantId, status: "Draft" }).sort({ updatedAt: -1 });
         if (!application) {
             const existing = await AdmissionApplication.findOne({ applicantId }).sort({ updatedAt: -1 });
-            if (!existing) return res.status(404).json({ message: "No application found" });
-            return res.status(409).json({ message: "This application has already been submitted" });
+            if (!existing) {
+                // If applicant submits directly without prior draft, initialize new application document
+                application = new AdmissionApplication({
+                    applicantId,
+                    status: "Draft",
+                });
+            } else {
+                return res.status(409).json({ message: "This application has already been submitted" });
+            }
         }
 
         application.set(toDottedUpdates(getFormData(req.body)));
@@ -231,7 +247,7 @@ async function submitAdmissionApplication(req, res) {
             return res.status(400).json({ message: "Application is incomplete", errors });
         }
 
-        application.applicationNumber = newApplicationNumber();
+        application.applicationNumber = await generateUniqueApplicationNumber();
         application.status = "Submitted";
         application.set("reviewSubmission.submittedAt", new Date().toISOString());
         await application.save();

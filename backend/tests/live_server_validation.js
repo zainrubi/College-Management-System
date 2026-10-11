@@ -203,6 +203,98 @@ async function runLiveValidation() {
     );
   });
 
+  // 11. Application submit endpoint missing token returns HTTP 401
+  await check("POST /api/applications/submit without Bearer token returns HTTP 401", async () => {
+    const res = await request(
+      { path: "/api/applications/submit", method: "POST" },
+      { personal: { fullName: "Test" } }
+    );
+    assert.strictEqual(res.statusCode, 401);
+    assert.strictEqual(res.body.message, "Authentication required: missing token");
+  });
+
+  // 12. Application submit endpoint with raw x-applicant-id returns HTTP 401
+  await check("POST /api/applications/submit with raw x-applicant-id without Bearer token returns HTTP 401", async () => {
+    const res = await request(
+      {
+        path: "/api/applications/submit",
+        method: "POST",
+        headers: { "x-applicant-id": "64f100000000000000000001" },
+      },
+      { personal: { fullName: "Test" } }
+    );
+    assert.strictEqual(res.statusCode, 401);
+    assert.strictEqual(res.body.message, "Authentication required: missing token");
+  });
+
+  // 13. Application submit endpoint with forged token returns HTTP 401
+  await check("POST /api/applications/submit with forged token returns HTTP 401", async () => {
+    const forgedToken = signToken(
+      { id: "64f100000000000000000001" },
+      { secret: "invalid_secret_key" }
+    );
+    const res = await request(
+      {
+        path: "/api/applications/submit",
+        method: "POST",
+        headers: { Authorization: `Bearer ${forgedToken}` },
+      },
+      { personal: { fullName: "Test" } }
+    );
+    assert.strictEqual(res.statusCode, 401);
+    assert(res.body.message.includes("invalid or forged token"));
+  });
+
+  // 14. Application submit endpoint with conflicting x-applicant-id returns HTTP 403
+  await check("POST /api/applications/submit with conflicting x-applicant-id returns HTTP 403 Forbidden", async () => {
+    const legitToken = signToken({ id: "64f100000000000000000001" });
+    const res = await request(
+      {
+        path: "/api/applications/submit",
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${legitToken}`,
+          "x-applicant-id": "64f100000000000000000002",
+        },
+      },
+      { personal: { fullName: "Test" } }
+    );
+    assert.strictEqual(res.statusCode, 403);
+    assert.strictEqual(
+      res.body.message,
+      "Forbidden: request header ID does not match authenticated token"
+    );
+  });
+
+  // 15. Application submit endpoint with malformed JSON body returns HTTP 400
+  await check("POST /api/applications/submit with malformed JSON body returns HTTP 400", async () => {
+    const res = await request(
+      {
+        path: "/api/applications/submit",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      },
+      "{bad json"
+    );
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.body.message, "Request body must be valid JSON");
+  });
+
+  // 16. CORS preflight OPTIONS to /api/applications/submit allows required headers
+  await check("CORS preflight OPTIONS to /api/applications/submit responds with allowed origin and headers", async () => {
+    const res = await request({
+      path: "/api/applications/submit",
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:3000",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type, authorization, x-applicant-id",
+      },
+    });
+    assert(res.statusCode === 200 || res.statusCode === 204, `Expected 200/204, got ${res.statusCode}`);
+    assert.strictEqual(res.headers["access-control-allow-origin"], "http://localhost:3000");
+  });
+
   console.log("\n═════════════════════════════════════════════════════════════");
   console.log(`Live Validation Results: ${passed}/${total} passed (${total - passed} failed)`);
   console.log("═════════════════════════════════════════════════════════════\n");

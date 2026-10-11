@@ -143,6 +143,8 @@ export function LoginForm({
       loginApplicant(identifier, password)
         .then((result) => {
           login("applicant", {
+            id: result.id,
+            token: result.token,
             name: result.fullName,
             phone: result.phone,
             email: result.email || "",
@@ -151,14 +153,26 @@ export function LoginForm({
         })
         .catch((err: unknown) => {
           const code = err instanceof Error ? err.message : "";
-          if (code === "ACCOUNT_NOT_FOUND") {
-            setErrorMsg("No applicant account exists with this phone number. Please register to apply.");
+          if (
+            code === "INVALID_CREDENTIALS" ||
+            code === "ACCOUNT_NOT_FOUND" ||
+            code.toLowerCase().includes("invalid mobile number or password")
+          ) {
+            setErrorMsg("Invalid mobile number or password. Please verify your details or register to apply.");
           } else if (code === "INVALID_PHONE") {
             setErrorMsg("Mobile number must contain exactly 11 digits.");
-          } else if (code === "INVALID_PASSWORD") {
-            setErrorMsg("Incorrect password. Please try again or contact the admissions office.");
+          } else if (code === "MISSING_PASSWORD" || code === "INVALID_PASSWORD") {
+            setErrorMsg("Please enter your password.");
+          } else if (
+            code === "NETWORK_ERROR" ||
+            code.toLowerCase().includes("failed to fetch") ||
+            code.toLowerCase().includes("network")
+          ) {
+            setErrorMsg("Unable to connect to admissions server. Please check your network connection and try again.");
+          } else if (code === "SERVER_ERROR") {
+            setErrorMsg("Admissions service is temporarily unavailable. Please try again in a few moments.");
           } else {
-            setErrorMsg("Unable to sign in. Please try again.");
+            setErrorMsg(code && code !== "LOGIN_FAILED" ? code : "Unable to sign in. Please try again.");
           }
         })
         .finally(() => setIsSubmitting(false));

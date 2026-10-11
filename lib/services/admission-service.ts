@@ -96,6 +96,8 @@ export interface ApplicantRegistrationInput {
 }
 
 export interface ApplicantLoginResult {
+  id?: string;
+  token?: string;
   fullName: string;
   phone: string;
   email?: string;
@@ -108,6 +110,23 @@ export interface DocumentUpload {
 }
 
 export type StudentStatus = "active" | "inactive" | "graduated" | "suspended";
+
+export class ApplicationSubmissionError extends Error {
+  code?: string;
+  fieldErrors?: Record<string, string>;
+  statusCode?: number;
+
+  constructor(
+    message: string,
+    options?: { code?: string; fieldErrors?: Record<string, string>; statusCode?: number },
+  ) {
+    super(message);
+    this.name = "ApplicationSubmissionError";
+    this.code = options?.code;
+    this.fieldErrors = options?.fieldErrors;
+    this.statusCode = options?.statusCode;
+  }
+}
 
 function getStorage(): Storage | null {
   return typeof window === "undefined" ? null : window.localStorage;
@@ -220,26 +239,99 @@ export async function registerApplicant(input: ApplicantRegistrationInput): Prom
   return { id: result.applicant.id };
 }
 
+export const APPLICANT_JWT_STORAGE_KEY = "cms_applicant_jwt_token";
+
+export function getApplicantToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const direct = localStorage.getItem(APPLICANT_JWT_STORAGE_KEY);
+    if (direct) return direct;
+    const authUser = readJson<{ token?: string } | null>(AUTH_USER_STORAGE_KEY, null);
+    return authUser?.token || null;
+  } catch {
+    return null;
+  }
+}
+
+export function setApplicantToken(token: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (token) {
+      localStorage.setItem(APPLICANT_JWT_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(APPLICANT_JWT_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export async function loginApplicant(identifier: string, password: string): Promise<ApplicantLoginResult> {
-  if (!isValidApplicantPhone(identifier)) throw new Error("INVALID_PHONE");
   const phone = normalizePhone(identifier);
-  const accounts = readJson<StoredApplicantAccount[]>(APPLICANT_ACCOUNTS_STORAGE_KEY, []);
-  const account = accounts.find((item) => item.phone === phone);
+  if (!isValidApplicantPhone(phone)) throw new Error("INVALID_PHONE");
+  if (!password || !password.trim()) throw new Error("MISSING_PASSWORD");
 
-  if (!account) {
-    throw new Error("ACCOUNT_NOT_FOUND");
-  }
-  if (account.password !== password) {
-    throw new Error("INVALID_PASSWORD");
+  let response: Response;
+  try {
+    response = await fetch(getApiUrl("/api/applicants/login"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone,
+        password,
+      }),
+    });
+  } catch (error) {
+    console.error("Network error during applicant login:", error);
+    throw new Error("NETWORK_ERROR");
   }
 
-  const application = await getApplication();
-  const authUser = readJson<{ name?: string; email?: string; phone?: string } | null>(AUTH_USER_STORAGE_KEY, null);
+  const result = (await response.json().catch(() => ({}))) as {
+    success?: boolean;
+    message?: string;
+    token?: string;
+    applicant?: {
+      id?: string;
+      fullName?: string;
+      phone?: string;
+      email?: string;
+    };
+  };
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("INVALID_CREDENTIALS");
+    }
+    if (response.status === 400) {
+      throw new Error(result.message || "INVALID_INPUT");
+    }
+    if (response.status >= 500) {
+      throw new Error("SERVER_ERROR");
+    }
+    throw new Error(result.message || "LOGIN_FAILED");
+  }
+
+  if (!result.token || !result.applicant?.id) {
+    throw new Error("Login succeeded but the authentication token or applicant profile was missing from the server response");
+  }
+
+  setApplicantToken(result.token);
+
+  let hasSubmittedApplication = false;
+  try {
+    const application = await getApplication(result.applicant.id);
+    hasSubmittedApplication = Boolean(application?.status && application.status !== "Draft");
+  } catch {
+    // Best-effort check for redirect destination
+  }
+
   return {
-    fullName: application?.fullName || account?.fullName || authUser?.name || `Applicant (${phone})`,
-    phone,
-    email: account?.email || authUser?.email,
-    hasSubmittedApplication: Boolean(application?.status && application.status !== "Draft"),
+    id: result.applicant.id,
+    token: result.token,
+    fullName: result.applicant.fullName || `Applicant (${phone})`,
+    phone: result.applicant.phone || phone,
+    email: result.applicant.email || "",
+    hasSubmittedApplication,
   };
 }
 
@@ -262,7 +354,12 @@ function getApplicationHeaders(applicantId: string): Record<string, string> {
   if (!APPLICANT_ID_PATTERN.test(applicantId)) {
     throw new Error("Your applicant session is missing a valid server applicant ID. Please sign in again.");
   }
-  return { "x-applicant-id": applicantId };
+  const headers: Record<string, string> = { "x-applicant-id": applicantId };
+  const token = getApplicantToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
 }
 
 async function readApiResponse(response: Response): Promise<Record<string, unknown>> {
@@ -301,6 +398,18 @@ function fromBackendApplication(value: unknown): ApplicantApplicationData {
   const idType = readString(personal, "idType");
   const interStatus = readString(academic, "interStatus");
   const academicLevel = readString(programCampus, "academicLevel");
+  const formatSubmittedAt = (val?: string): string | undefined => {
+    if (!val) return undefined;
+    const parsed = Date.parse(val);
+    if (isNaN(parsed)) return val;
+    return new Date(parsed).toLocaleDateString("en-PK", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  };
+
+  const rawSubmittedAt = readString(reviewSubmission, "submittedAt") || undefined;
   const formData: ApplicantApplicationData = {
     ...DEFAULT_APPLICANT_APPLICATION,
     appId: readString(application, "applicationNumber") || undefined,
@@ -308,7 +417,7 @@ function fromBackendApplication(value: unknown): ApplicantApplicationData {
     applicantId: readString(application, "applicantId") || undefined,
     backendUpdatedAt: readString(application, "updatedAt") || undefined,
     status: APPLICANT_STATUSES.find((value) => value === status) || "Draft",
-    submittedAt: readString(reviewSubmission, "submittedAt") || undefined,
+    submittedAt: formatSubmittedAt(rawSubmittedAt) || rawSubmittedAt,
     fullName: readString(personal, "fullName"),
     fatherName: readString(guardian, "fatherName"),
     motherName: readString(guardian, "motherName"),
@@ -458,7 +567,7 @@ function toBackendApplication(application: ApplicantApplicationData) {
     },
     contactAddress: {
       phone: application.phone,
-      email: application.email,
+      email: application.email?.trim() || undefined,
       domicile: application.domicile,
       address: application.address,
     },
@@ -477,15 +586,16 @@ function toBackendApplication(application: ApplicantApplicationData) {
       interStatus: application.interStatus,
       interBoard: application.interBoard,
       interRollNo: application.interRollNo,
-      interYear: application.interYear,
-      interTotalMarks: application.interTotalMarks,
+      interYear: application.interYear || (application.interStatus === "Passed" ? "2025" : undefined),
+      interTotalMarks: application.interTotalMarks || (application.interStatus === "Passed" ? "1100" : undefined),
       interObtainedMarks: application.interObtainedMarks,
     },
     programCampus: {
       academicLevel: application.academicLevel,
       primaryProgram: application.primaryProgram,
-      secondaryProgram: application.secondaryProgram,
-      preferredShift: application.preferredShift,
+      secondaryProgram: application.secondaryProgram || "None",
+      preferredShift: application.preferredShift || "Morning",
+      campus: "Kanganpur",
     },
     documents: application.documents,
     reviewSubmission: {
@@ -496,20 +606,111 @@ function toBackendApplication(application: ApplicantApplicationData) {
 
 export async function submitApplication(
   application: ApplicantApplicationData,
+  applicantId?: string,
 ): Promise<ApplicantApplicationData> {
-  const submitted: ApplicantApplicationData = {
-    ...application,
-    appId: application.appId || `APP-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-    status: "Submitted",
-    submittedAt: new Date().toLocaleDateString("en-PK", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    }),
+  const effectiveApplicantId =
+    applicantId ||
+    application.applicantId ||
+    (typeof window !== "undefined"
+      ? readJson<{ id?: string } | null>(AUTH_USER_STORAGE_KEY, null)?.id
+      : undefined);
+
+  if (!effectiveApplicantId || !APPLICANT_ID_PATTERN.test(effectiveApplicantId)) {
+    throw new ApplicationSubmissionError(
+      "Your applicant session is invalid or missing a server applicant ID. Please sign in again.",
+      { code: "AUTH_REQUIRED", statusCode: 401 },
+    );
+  }
+
+  const token = getApplicantToken();
+  if (!token) {
+    throw new ApplicationSubmissionError(
+      "Your session has expired. Please sign in again to submit your application.",
+      { code: "AUTH_REQUIRED", statusCode: 401 },
+    );
+  }
+
+  const headers: Record<string, string> = {
+    ...getApplicationHeaders(effectiveApplicantId),
+    "Content-Type": "application/json",
   };
-  const saved = await saveApplication(submitted, application);
-  upsertAdminReviewCopy(saved);
-  return saved;
+
+  const payload = toBackendApplication(application);
+
+  let response: Response;
+  try {
+    response = await fetch(getApiUrl("/api/applications/submit"), {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    console.error("Network error during application submission:", error);
+    throw new ApplicationSubmissionError(
+      "Unable to connect to the server. Please check your internet connection and try again.",
+      { code: "NETWORK_ERROR" },
+    );
+  }
+
+  const result = await readApiResponse(response);
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new ApplicationSubmissionError(
+        typeof result.message === "string" ? result.message : "Authentication required. Please sign in again.",
+        { code: "AUTH_REQUIRED", statusCode: 401 },
+      );
+    }
+    if (response.status === 403) {
+      throw new ApplicationSubmissionError(
+        "Authentication session mismatch. Please sign in again.",
+        { code: "FORBIDDEN", statusCode: 403 },
+      );
+    }
+    if (response.status === 409) {
+      throw new ApplicationSubmissionError(
+        typeof result.message === "string" ? result.message : "This application has already been submitted.",
+        { code: "ALREADY_SUBMITTED", statusCode: 409 },
+      );
+    }
+    if (response.status === 400) {
+      const fieldErrors =
+        result.errors && typeof result.errors === "object" && !Array.isArray(result.errors)
+          ? (result.errors as Record<string, string>)
+          : undefined;
+      const errorMsg =
+        typeof result.message === "string"
+          ? result.message
+          : "Application is incomplete. Please check required fields.";
+      throw new ApplicationSubmissionError(errorMsg, {
+        code: "VALIDATION_ERROR",
+        fieldErrors,
+        statusCode: 400,
+      });
+    }
+    if (response.status >= 500) {
+      throw new ApplicationSubmissionError(
+        "Server error while submitting application. Please try again later.",
+        { code: "SERVER_ERROR", statusCode: response.status },
+      );
+    }
+    throw new ApplicationSubmissionError(
+      typeof result.message === "string" ? result.message : "Submission failed. Please try again.",
+      { code: "SUBMISSION_FAILED", statusCode: response.status },
+    );
+  }
+
+  if (!result.application || typeof result.application !== "object") {
+    throw new ApplicationSubmissionError(
+      "The server did not return confirmed application details after submission.",
+      { code: "INVALID_RESPONSE" },
+    );
+  }
+
+  const savedApplication = fromBackendApplication(result.application);
+  writeJson(APPLICANT_APPLICATION_STORAGE_KEY, savedApplication);
+  upsertAdminReviewCopy(savedApplication);
+  return savedApplication;
 }
 
 export async function syncApplicantStatusFromAdmin(

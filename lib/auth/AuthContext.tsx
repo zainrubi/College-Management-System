@@ -73,11 +73,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    // Restore session from localStorage for demo persistence
+    // Restore session from localStorage for persistence
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        setUser(JSON.parse(stored));
+        const parsed = JSON.parse(stored) as User;
+        const storedToken = localStorage.getItem("cms_applicant_jwt_token");
+        if (storedToken && !parsed.token) {
+          parsed.token = storedToken;
+        }
+        setUser(parsed);
       }
     } catch {
       // Ignore localStorage errors
@@ -91,12 +96,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const sessionUser: User = {
       ...baseMock,
       ...customUser,
+      id: customUser?.id || (role === "applicant" ? "" : baseMock.id),
       email: customUser?.email ?? (role === "applicant" ? "" : baseMock.email),
+      token: customUser?.token,
       role,
     };
     setUser(sessionUser);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionUser));
+      if (customUser?.token) {
+        localStorage.setItem("cms_applicant_jwt_token", customUser.token);
+      }
     } catch {
       // Ignore localStorage errors
     }
@@ -106,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     try {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem("cms_applicant_jwt_token");
     } catch {
       // Ignore localStorage errors
     }
