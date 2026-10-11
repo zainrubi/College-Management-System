@@ -1,4 +1,5 @@
 const Applicant = require("../models/Applicant");
+const { signToken } = require("../utils/jwt");
 
 async function registerApplicant(req, res) {
     try {
@@ -99,4 +100,80 @@ async function registerApplicant(req, res) {
     }
 }
 
-module.exports = { registerApplicant };
+async function loginApplicant(req, res) {
+    try {
+        const { phone, password } = req.body || {};
+
+        // Validate phone number presence and format (11 digits)
+        if (
+            !phone ||
+            typeof phone !== "string" ||
+            !/^[0-9]{11}$/.test(phone.trim()) ||
+            !password ||
+            typeof password !== "string"
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide a valid 11-digit mobile number and password",
+            });
+        }
+
+        const normalizedPhone = phone.trim();
+
+        // Query applicant with password explicitly selected
+        const applicant = await Applicant.findOne({ phone: normalizedPhone }).select("+password");
+
+        // Generic error for unknown phone to prevent user enumeration
+        if (!applicant) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid mobile number or password",
+            });
+        }
+
+        // Compare password with bcrypt
+        const isMatch = await applicant.comparePassword(password);
+        if (!isMatch) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid mobile number or password",
+            });
+        }
+
+        // Generate signed JWT
+        const token = signToken({
+            id: applicant._id.toString(),
+            phone: applicant.phone,
+            role: "applicant",
+        });
+
+        // Return token and sanitized applicant profile (never exposing password)
+        return res.status(200).json({
+            success: true,
+            message: "Login successful",
+            token,
+            applicant: {
+                id: applicant._id,
+                fullName: applicant.fullName,
+                phone: applicant.phone,
+                email: applicant.email || "",
+            },
+        });
+    } catch (error) {
+        if (error.message?.includes("JWT_SECRET")) {
+            console.error("Authentication configuration error: JWT_SECRET missing");
+            return res.status(500).json({
+                success: false,
+                message: "Server configuration error",
+            });
+        }
+
+        console.error("Login failed:", error.message);
+        return res.status(500).json({
+            success: false,
+            message: "Server error — try again",
+        });
+    }
+}
+
+module.exports = { registerApplicant, loginApplicant };

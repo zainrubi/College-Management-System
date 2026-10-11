@@ -41,4 +41,11 @@ applicantSchema.pre("save", async function hashPassword() {
 
 });
 
+applicantSchema.methods.comparePassword = async function (candidatePassword) {
+  if (!this.password) {
+    throw new Error("Password field not selected");
+  }
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
 module.exports = mongoose.model("Applicant", applicantSchema);

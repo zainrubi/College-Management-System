@@ -1,68 +1,75 @@
 const mongoose = require("mongoose");
 const Applicant = require("../models/Applicant");
+const { verifyToken } = require("../utils/jwt");
 
 /**
  * Authentication middleware for applicant-protected routes.
- * Ensures the requesting applicant is authenticated and attaches the applicant to req.user.
+ * Strictly verifies the signed JWT token before trusting identity.
+ * Rejects forged x-applicant-id headers and unverified payloads.
  */
 async function protect(req, res, next) {
     try {
-        // If req.user is already set by an upstream middleware or session
+        // If req.user is already set by an upstream verified session
         if (req.user && (req.user._id || req.user.id)) {
             return next();
         }
 
-        let tokenOrId = null;
         const authHeader = req.headers.authorization;
 
-        if (authHeader && typeof authHeader === "string") {
-            if (authHeader.startsWith("Bearer ")) {
-                tokenOrId = authHeader.slice(7).trim();
-            } else {
-                tokenOrId = authHeader.trim();
+        if (!authHeader || typeof authHeader !== "string") {
+            return res.status(401).json({ message: "Authentication required: missing token" });
+        }
+
+        let token = null;
+        if (authHeader.startsWith("Bearer ")) {
+            token = authHeader.slice(7).trim();
+        } else {
+            token = authHeader.trim();
+        }
+
+        if (!token) {
+            return res.status(401).json({ message: "Authentication required: missing token" });
+        }
+
+        // Verify cryptographic JWT signature, structure, and expiration
+        let decoded;
+        try {
+            decoded = verifyToken(token);
+        } catch (err) {
+            if (err.name === "TokenExpiredError") {
+                return res.status(401).json({ message: "Authentication required: token has expired" });
             }
+            return res.status(401).json({ message: "Authentication required: invalid or forged token" });
         }
 
-        if (!tokenOrId && req.headers["x-applicant-id"]) {
-            tokenOrId = String(req.headers["x-applicant-id"]).trim();
+        const applicantId = decoded?.id || decoded?._id || decoded?.sub;
+        if (!applicantId || !mongoose.Types.ObjectId.isValid(applicantId)) {
+            return res.status(401).json({ message: "Authentication required: invalid token payload" });
         }
 
-        if (!tokenOrId) {
-            return res.status(401).json({ message: "Authentication required" });
+        // Explicitly check for ID spoofing attempts via headers
+        const spoofedHeaderId = req.headers["x-applicant-id"];
+        if (spoofedHeaderId && String(spoofedHeaderId).trim() !== String(applicantId)) {
+            return res.status(403).json({
+                message: "Forbidden: request header ID does not match authenticated token",
+            });
         }
 
-        // Support direct ObjectId or decoded JWT payload if provided
-        let applicantId = null;
-        if (mongoose.Types.ObjectId.isValid(tokenOrId)) {
-            applicantId = tokenOrId;
-        } else if (tokenOrId.includes(".")) {
-            try {
-                const parts = tokenOrId.split(".");
-                if (parts.length === 3) {
-                    const payloadStr = Buffer.from(parts[1], "base64").toString("utf-8");
-                    const payload = JSON.parse(payloadStr);
-                    const candidate = payload.id || payload._id || payload.sub;
-                    if (candidate && mongoose.Types.ObjectId.isValid(candidate)) {
-                        applicantId = candidate;
-                    }
-                }
-            } catch {
-                // Ignore decoding errors
-            }
-        }
-
-        if (!applicantId) {
-            return res.status(401).json({ message: "Authentication required: invalid token or ID" });
-        }
-
+        // Verify applicant exists in database
         const applicant = await Applicant.findById(applicantId);
         if (!applicant) {
             return res.status(401).json({ message: "Authentication required: applicant not found" });
         }
 
+        // Attach verified applicant to req.user for downstream controllers
         req.user = applicant;
         return next();
     } catch (error) {
+        if (error.message?.includes("JWT_SECRET")) {
+            console.error("Auth middleware error: JWT_SECRET missing in backend environment");
+            return res.status(500).json({ message: "Server authentication configuration error" });
+        }
+
         console.error("Auth middleware error:", error.message);
         return res.status(500).json({ message: "Authentication error" });
     }
@@ -72,3 +79,4 @@ protect.protect = protect;
 protect.authMiddleware = protect;
 
 module.exports = protect;
+
