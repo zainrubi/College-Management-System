@@ -45,11 +45,14 @@ import {
 } from "@/types/applications";
 import {
   findApplicationById,
-  executeApplicationAction,
   APPLICATION_STATUS_CONFIG,
   updateStoredApplication,
   getApplicationLifecycleStatus,
 } from "@/lib/mock-data/applications-data";
+import {
+  fetchAdminApplicationById,
+  updateAdminApplicationStatus,
+} from "@/lib/services/admin-admissions-service";
 
 interface PageProps {
   params: Promise<{
@@ -64,6 +67,7 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
 
   const [application, setApplication] = useState<CompleteApplication | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Modals
   const [showAcceptModal, setShowAcceptModal] = useState(false);
@@ -79,16 +83,40 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
   const [holdNotes, setHoldNotes] = useState("");
   const [rejectionError, setRejectionError] = useState<string | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+  const [actionErrorMsg, setActionErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    const loaded = findApplicationById(applicationId);
-    setApplication(loaded);
-    setLoading(false);
+    let isCancelled = false;
+    setLoading(true);
+    fetchAdminApplicationById(applicationId)
+      .then((data) => {
+        if (!isCancelled) {
+          setApplication(data);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!isCancelled) {
+          console.error("Failed to load application details from backend:", err);
+          const fallback = findApplicationById(applicationId);
+          setApplication(fallback);
+          setLoading(false);
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
   }, [applicationId]);
 
-  const refreshData = () => {
-    const reloaded = findApplicationById(applicationId);
-    if (reloaded) setApplication(reloaded);
+  const refreshData = async () => {
+    try {
+      const reloaded = await fetchAdminApplicationById(applicationId);
+      if (reloaded) setApplication(reloaded);
+    } catch (err) {
+      console.error("Failed to reload application from backend:", err);
+      const fallback = findApplicationById(applicationId);
+      if (fallback) setApplication(fallback);
+    }
   };
 
   const showSuccessBanner = (msg: string) => {
@@ -97,25 +125,33 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
   };
 
   // Administrative Actions
-  const handleAcceptAdmission = () => {
-    if (!application) return;
-    const updated = executeApplicationAction(
-      application.id,
-      "accepted",
-      "Admission Accepted",
-      `Admission confirmed for ${application.preferences.selectedProgram}. Fee voucher scheduled.`,
-      "Admin (Admissions Directorate)",
-      "Senior Registrar"
-    );
-    if (updated) {
-      setApplication(updated);
-      setShowAcceptModal(false);
-      showSuccessBanner(`Application ${application.applicationNumber} has been marked as Accepted.`);
+  const handleAcceptAdmission = async () => {
+    if (!application || isSubmitting) return;
+    try {
+      setIsSubmitting(true);
+      setActionErrorMsg(null);
+      const note = `Admission confirmed for ${application.preferences.selectedProgram}. Fee voucher scheduled.`;
+      const result = await updateAdminApplicationStatus(application.id, {
+        status: "accepted",
+        notes: note,
+        reviewerName: "Admin (Admissions Directorate)",
+        reviewerRole: "Senior Registrar",
+      });
+      if (result.success && result.application) {
+        setApplication(result.application);
+        setShowAcceptModal(false);
+        showSuccessBanner(`Application ${application.applicationNumber} has been marked as Accepted.`);
+      }
+    } catch (err) {
+      console.error("Failed to accept application:", err);
+      setActionErrorMsg(err instanceof Error ? err.message : "Failed to accept admission");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleRejectApplication = () => {
-    if (!application) return;
+  const handleRejectApplication = async () => {
+    if (!application || isSubmitting) return;
     const reasonDetails = rejectionNotes.trim();
     if (!reasonDetails) {
       setRejectionError("Please provide the reason for rejection.");
@@ -123,56 +159,77 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
     }
     const finalReason = `${rejectionPreset} — ${reasonDetails}`;
 
-    const updated = executeApplicationAction(
-      application.id,
-      "rejected",
-      "Application Rejected",
-      finalReason,
-      "Admin (Admissions Directorate)",
-      "Senior Registrar"
-    );
-    if (updated) {
-      setApplication(updated);
-      setShowRejectModal(false);
-      setRejectionNotes("");
-      setRejectionError(null);
-      showSuccessBanner(`Application ${application.applicationNumber} status set to Rejected.`);
+    try {
+      setIsSubmitting(true);
+      setActionErrorMsg(null);
+      const result = await updateAdminApplicationStatus(application.id, {
+        status: "rejected",
+        notes: finalReason,
+        reviewerName: "Admin (Admissions Directorate)",
+        reviewerRole: "Senior Registrar",
+      });
+      if (result.success && result.application) {
+        setApplication(result.application);
+        setShowRejectModal(false);
+        setRejectionNotes("");
+        setRejectionError(null);
+        showSuccessBanner(`Application ${application.applicationNumber} status set to Rejected.`);
+      }
+    } catch (err) {
+      console.error("Failed to reject application:", err);
+      setActionErrorMsg(err instanceof Error ? err.message : "Failed to reject application");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleRequestInfo = () => {
-    if (!application || !requestInfoNotes.trim()) return;
-    const updated = executeApplicationAction(
-      application.id,
-      "more_info_required",
-      "More Information Requested",
-      requestInfoNotes.trim(),
-      "Admin (Admissions Officer)",
-      "Admissions Staff"
-    );
-    if (updated) {
-      setApplication(updated);
-      setShowInfoModal(false);
-      setRequestInfoNotes("");
-      showSuccessBanner(`Request sent to applicant. Status changed to More Info Required.`);
+  const handleRequestInfo = async () => {
+    if (!application || !requestInfoNotes.trim() || isSubmitting) return;
+    try {
+      setIsSubmitting(true);
+      setActionErrorMsg(null);
+      const result = await updateAdminApplicationStatus(application.id, {
+        status: "more_info_required",
+        notes: requestInfoNotes.trim(),
+        reviewerName: "Admin (Admissions Officer)",
+        reviewerRole: "Admissions Staff",
+      });
+      if (result.success && result.application) {
+        setApplication(result.application);
+        setShowInfoModal(false);
+        setRequestInfoNotes("");
+        showSuccessBanner(`Request sent to applicant. Status changed to More Info Required.`);
+      }
+    } catch (err) {
+      console.error("Failed to request info:", err);
+      setActionErrorMsg(err instanceof Error ? err.message : "Failed to request additional information");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handlePutOnHold = () => {
-    if (!application || !holdNotes.trim()) return;
-    const updated = executeApplicationAction(
-      application.id,
-      "on_hold",
-      "Application Placed On Hold",
-      holdNotes.trim(),
-      "Admin (Admissions Officer)",
-      "Admissions Staff"
-    );
-    if (updated) {
-      setApplication(updated);
-      setShowHoldModal(false);
-      setHoldNotes("");
-      showSuccessBanner(`Application ${application.applicationNumber} has been placed on hold.`);
+  const handlePutOnHold = async () => {
+    if (!application || !holdNotes.trim() || isSubmitting) return;
+    try {
+      setIsSubmitting(true);
+      setActionErrorMsg(null);
+      const result = await updateAdminApplicationStatus(application.id, {
+        status: "on_hold",
+        notes: holdNotes.trim(),
+        reviewerName: "Admin (Admissions Officer)",
+        reviewerRole: "Admissions Staff",
+      });
+      if (result.success && result.application) {
+        setApplication(result.application);
+        setShowHoldModal(false);
+        setHoldNotes("");
+        showSuccessBanner(`Application ${application.applicationNumber} has been placed on hold.`);
+      }
+    } catch (err) {
+      console.error("Failed to put on hold:", err);
+      setActionErrorMsg(err instanceof Error ? err.message : "Failed to place application on hold");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -248,6 +305,21 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
           <button
             onClick={() => setActionSuccessMsg(null)}
             className="text-xs text-emerald-700 hover:text-emerald-900 font-semibold"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {actionErrorMsg && (
+        <div className="mb-4 p-3.5 bg-rose-50 border border-rose-300 text-rose-900 rounded-xl flex items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2.5 text-sm font-medium">
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+            {actionErrorMsg}
+          </div>
+          <button
+            onClick={() => setActionErrorMsg(null)}
+            className="text-xs text-rose-700 hover:text-rose-900 font-semibold"
           >
             Dismiss
           </button>
@@ -1055,9 +1127,10 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
               size="sm"
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
               leftIcon={<CheckCircle2 className="w-4 h-4" />}
+              disabled={isSubmitting}
               onClick={handleAcceptAdmission}
             >
-              Confirm & Issue Admission
+              {isSubmitting ? "Processing..." : "Confirm & Issue Admission"}
             </Button>
           </div>
         }
@@ -1098,9 +1171,10 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
               size="sm"
               className="bg-rose-600 hover:bg-rose-700 text-white border-transparent font-semibold"
               leftIcon={<XCircle className="w-4 h-4" />}
+              disabled={isSubmitting}
               onClick={handleRejectApplication}
             >
-              Confirm Rejection
+              {isSubmitting ? "Processing..." : "Confirm Rejection"}
             </Button>
           </div>
         }
@@ -1169,10 +1243,10 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
               size="sm"
               className="bg-slate-800 hover:bg-slate-900 text-white font-semibold"
               leftIcon={<HelpCircle className="w-4 h-4" />}
-              disabled={!requestInfoNotes.trim()}
+              disabled={!requestInfoNotes.trim() || isSubmitting}
               onClick={handleRequestInfo}
             >
-              Send Request to Applicant
+              {isSubmitting ? "Sending..." : "Send Request to Applicant"}
             </Button>
           </div>
         }
@@ -1213,10 +1287,10 @@ export default function AdminApplicationDetailPage({ params }: PageProps) {
               size="sm"
               className="bg-slate-700 hover:bg-slate-800 text-white font-semibold"
               leftIcon={<PauseCircle className="w-4 h-4" />}
-              disabled={!holdNotes.trim()}
+              disabled={!holdNotes.trim() || isSubmitting}
               onClick={handlePutOnHold}
             >
-              Place On Hold
+              {isSubmitting ? "Updating..." : "Place On Hold"}
             </Button>
           </div>
         }

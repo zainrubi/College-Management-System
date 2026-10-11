@@ -82,12 +82,26 @@ const admissionApplicationSchema = new mongoose.Schema(
       guardianCnic: String,
       photo: String,
     },
+
     reviewSubmission: {
       undertakingAgreed: Boolean,
       submittedAt: String,
+      resubmittedAt: String,
       reviewedAt: Date,
       reviewerNotes: String,
     },
+    history: [
+      {
+        id: String,
+        action: String,
+        timestamp: String,
+        performedBy: String,
+        role: String,
+        previousStatus: String,
+        newStatus: String,
+        note: String,
+      },
+    ],
   },
   { timestamps: true },
 );

@@ -28,8 +28,10 @@ router.put("/", updateAdmissionDraft);
 router.patch("/draft", updateAdmissionDraft);
 router.patch("/", updateAdmissionDraft);
 
-// Submit my application
+// Submit or resubmit my application
 router.post("/submit", submitAdmissionApplication);
 router.post("/me/submit", submitAdmissionApplication);
+router.post("/resubmit", submitAdmissionApplication);
+router.put("/resubmit", submitAdmissionApplication);
 
 module.exports = router;

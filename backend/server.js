@@ -7,12 +7,15 @@ require("dotenv").config();
 const connectDB = require("./config/db");
 const applicantRoutes = require("./routes/applicantRoutes");
 const admissionApplicationRoutes = require("./routes/admissionApplicationRoutes");
+const adminRoutes = require("./routes/adminRoutes");
 
 const app = express();
 
 const allowedOrigins = new Set([
   "http://localhost:3000",
   "http://127.0.0.1:3000",
+  "http://localhost:3001",
+  "http://127.0.0.1:3001",
   ...(process.env.FRONTEND_ORIGIN || "")
     .split(",")
     .map((origin) => origin.trim())
@@ -24,13 +27,28 @@ app.use(cors({
     if (!origin || allowedOrigins.has(origin)) {
       return callback(null, true);
     }
+    // In local development, permit requests from localhost dev servers on any port
+    if (process.env.NODE_ENV !== "production") {
+      try {
+        const parsed = new URL(origin);
+        if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+          return callback(null, true);
+        }
+      } catch {
+        // Ignore invalid URL parse errors
+      }
+    }
     return callback(null, false);
   },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-applicant-id"],
 }));
 app.use(express.json());
 app.use("/api/applicants", applicantRoutes);
 app.use("/api/applications", admissionApplicationRoutes);
 app.use("/api/admission-applications", admissionApplicationRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.get("/", (req, res) => {
   res.send("College website backend is running!");
@@ -66,16 +84,37 @@ async function ensureApplicantIndexes() {
 }
 
 async function startServer() {
+  const server = app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+
   try {
     await connectDB();
     await ensureApplicantIndexes();
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
   } catch (error) {
-    console.error("MongoDB connection failed:", error.message);
-    process.exit(1);
+    console.warn("MongoDB connection notice:", error.message);
+    console.warn("Express server remains active for admin authentication and independent routes.");
+
+    if (process.env.NODE_ENV !== "test") {
+      const mongoose = require("mongoose");
+      const retryTimer = setInterval(async () => {
+        if (mongoose.connection.readyState === 0) {
+          try {
+            await connectDB();
+            await ensureApplicantIndexes();
+            clearInterval(retryTimer);
+          } catch {
+            // Silently wait for next interval
+          }
+        } else if (mongoose.connection.readyState === 1) {
+          clearInterval(retryTimer);
+        }
+      }, 10000);
+      retryTimer.unref();
+    }
   }
+
+  return server;
 }
 
 startServer();

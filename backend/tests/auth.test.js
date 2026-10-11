@@ -2,7 +2,7 @@ const assert = require("assert");
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const { signToken, verifyToken, getJwtSecret } = require("../utils/jwt");
-const { loginApplicant } = require("../controllers/applicantController");
+const { registerApplicant, loginApplicant } = require("../controllers/applicantController");
 const { protect } = require("../middleware/authMiddleware");
 const Applicant = require("../models/Applicant");
 
@@ -111,8 +111,115 @@ async function runTests() {
     }
   });
 
-  // ─── 2. Login Controller Tests ──────────────────────────────────────────
-  console.log("\n[2] Applicant Login Controller Tests");
+  // ─── 2. Applicant Registration Controller Tests ─────────────────────────
+  console.log("\n[2] Applicant Registration Controller Tests");
+
+  await test("registerApplicant rejects short or missing fullName with 400", async () => {
+    const req = { body: { fullName: "Al", phone: dummyPhone, password: dummyPassword } };
+    const res = createMockRes();
+    await registerApplicant(req, res);
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.body.success, false);
+    assert(res.body.message.includes("Full name must be at least 3 characters"));
+  });
+
+  await test("registerApplicant rejects non-11-digit phone numbers with 400", async () => {
+    const req = { body: { fullName: "Valid Name", phone: "030012345", password: dummyPassword } };
+    const res = createMockRes();
+    await registerApplicant(req, res);
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.body.success, false);
+    assert(res.body.message.includes("Phone must be exactly 11 digits"));
+  });
+
+  await test("registerApplicant rejects invalid email format with 400", async () => {
+    const req = { body: { fullName: "Valid Name", phone: dummyPhone, email: "invalid-email-no-at", password: dummyPassword } };
+    const res = createMockRes();
+    await registerApplicant(req, res);
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.body.success, false);
+    assert(res.body.message.includes("Invalid email address"));
+  });
+
+  await test("registerApplicant rejects password shorter than 6 characters with 400", async () => {
+    const req = { body: { fullName: "Valid Name", phone: dummyPhone, password: "123" } };
+    const res = createMockRes();
+    await registerApplicant(req, res);
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.body.success, false);
+    assert(res.body.message.includes("Password must be at least 6 characters"));
+  });
+
+  await test("registerApplicant returns 409 when phone number is already registered", async () => {
+    const originalFindOne = Applicant.findOne;
+    Applicant.findOne = () => ({
+      lean: async () => ({ _id: dummyApplicantId, phone: dummyPhone }),
+    });
+
+    try {
+      const req = { body: { fullName: "Duplicate User", phone: dummyPhone, password: dummyPassword } };
+      const res = createMockRes();
+      await registerApplicant(req, res);
+      assert.strictEqual(res.statusCode, 409);
+      assert.strictEqual(res.body.code, "PHONE_ALREADY_REGISTERED");
+      assert(res.body.message.includes("already registered"));
+    } finally {
+      Applicant.findOne = originalFindOne;
+    }
+  });
+
+  await test("registerApplicant returns 503 when database operation times out", async () => {
+    const originalFindOne = Applicant.findOne;
+    const originalCreate = Applicant.create;
+    Applicant.findOne = () => ({ lean: async () => null });
+    Applicant.create = async () => {
+      const err = new Error("Operation `applicants.insertOne()` buffering timed out after 10000ms");
+      err.name = "MongooseError";
+      throw err;
+    };
+
+    try {
+      const req = { body: { fullName: "Valid User", phone: dummyPhone, password: dummyPassword } };
+      const res = createMockRes();
+      await registerApplicant(req, res);
+      assert.strictEqual(res.statusCode, 503);
+      assert.strictEqual(res.body.code, "DATABASE_UNAVAILABLE");
+      assert(res.body.message.includes("Database service is temporarily unavailable"));
+    } finally {
+      Applicant.findOne = originalFindOne;
+      Applicant.create = originalCreate;
+    }
+  });
+
+  await test("registerApplicant returns 201 with applicant profile on success", async () => {
+    const originalFindOne = Applicant.findOne;
+    const originalCreate = Applicant.create;
+    Applicant.findOne = () => ({ lean: async () => null });
+    Applicant.create = async (data) => ({
+      _id: dummyApplicantId,
+      fullName: data.fullName,
+      phone: data.phone,
+      email: data.email || null,
+      createdAt: new Date().toISOString(),
+    });
+
+    try {
+      const req = { body: { fullName: "Hamza Khan", phone: "03001234567", password: "Password123" } };
+      const res = createMockRes();
+      await registerApplicant(req, res);
+      assert.strictEqual(res.statusCode, 201);
+      assert.strictEqual(res.body.success, true);
+      assert.strictEqual(res.body.applicant.phone, "03001234567");
+      assert.strictEqual(res.body.applicant.fullName, "Hamza Khan");
+      assert.strictEqual(res.body.applicant.id, dummyApplicantId);
+    } finally {
+      Applicant.findOne = originalFindOne;
+      Applicant.create = originalCreate;
+    }
+  });
+
+  // ─── 3. Login Controller Tests ──────────────────────────────────────────
+  console.log("\n[3] Applicant Login Controller Tests");
 
   await test("loginApplicant rejects malformed or missing phone numbers with 400", async () => {
     const req = { body: { phone: "12345", password: dummyPassword } };

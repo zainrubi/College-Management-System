@@ -31,6 +31,17 @@ interface StoredApplicantAccount {
   email?: string;
 }
 
+export interface ApplicantAuditEvent {
+  id: string;
+  action: string;
+  timestamp: string;
+  performedBy: string;
+  role: string;
+  previousStatus?: string;
+  newStatus?: string;
+  note?: string;
+}
+
 export interface ApplicantApplicationData {
   appId?: string;
   backendApplicationId?: string;
@@ -48,6 +59,10 @@ export interface ApplicantApplicationData {
   | "Admitted"
   | "Rejected";
   submittedAt?: string;
+  resubmittedAt?: string;
+  reviewedAt?: string;
+  reviewerNotes?: string;
+  history?: ApplicantAuditEvent[];
   fullName: string;
   fatherName: string;
   motherName: string;
@@ -410,6 +425,23 @@ function fromBackendApplication(value: unknown): ApplicantApplicationData {
   };
 
   const rawSubmittedAt = readString(reviewSubmission, "submittedAt") || undefined;
+  const rawResubmittedAt = readString(reviewSubmission, "resubmittedAt") || undefined;
+  const rawReviewedAt = readString(reviewSubmission, "reviewedAt") || (reviewSubmission.reviewedAt ? String(reviewSubmission.reviewedAt) : undefined);
+
+  let reviewerNotes = readString(reviewSubmission, "reviewerNotes") || undefined;
+  const historyList = Array.isArray(application.history)
+    ? (application.history as ApplicantAuditEvent[])
+    : [];
+
+  if (!reviewerNotes && historyList.length > 0) {
+    const lastFeedback = [...historyList].reverse().find(
+      (h) => (h.newStatus === "More Information Required" || h.action === "More Information Requested") && h.note
+    );
+    if (lastFeedback?.note) {
+      reviewerNotes = lastFeedback.note;
+    }
+  }
+
   const formData: ApplicantApplicationData = {
     ...DEFAULT_APPLICANT_APPLICATION,
     appId: readString(application, "applicationNumber") || undefined,
@@ -418,6 +450,10 @@ function fromBackendApplication(value: unknown): ApplicantApplicationData {
     backendUpdatedAt: readString(application, "updatedAt") || undefined,
     status: APPLICANT_STATUSES.find((value) => value === status) || "Draft",
     submittedAt: formatSubmittedAt(rawSubmittedAt) || rawSubmittedAt,
+    resubmittedAt: formatSubmittedAt(rawResubmittedAt) || rawResubmittedAt,
+    reviewedAt: formatSubmittedAt(rawReviewedAt) || rawReviewedAt,
+    reviewerNotes,
+    history: historyList,
     fullName: readString(personal, "fullName"),
     fatherName: readString(guardian, "fatherName"),
     motherName: readString(guardian, "motherName"),
@@ -607,6 +643,7 @@ function toBackendApplication(application: ApplicantApplicationData) {
 export async function submitApplication(
   application: ApplicantApplicationData,
   applicantId?: string,
+  resubmissionNote?: string,
 ): Promise<ApplicantApplicationData> {
   const effectiveApplicantId =
     applicantId ||
@@ -635,7 +672,10 @@ export async function submitApplication(
     "Content-Type": "application/json",
   };
 
-  const payload = toBackendApplication(application);
+  const payload = {
+    ...toBackendApplication(application),
+    ...(resubmissionNote?.trim() ? { resubmissionNote: resubmissionNote.trim() } : {}),
+  };
 
   let response: Response;
   try {
@@ -668,8 +708,9 @@ export async function submitApplication(
       );
     }
     if (response.status === 409) {
+      const msg = typeof result.message === "string" ? result.message : "This application cannot be resubmitted at this time.";
       throw new ApplicationSubmissionError(
-        typeof result.message === "string" ? result.message : "This application has already been submitted.",
+        msg,
         { code: "ALREADY_SUBMITTED", statusCode: 409 },
       );
     }
@@ -713,6 +754,14 @@ export async function submitApplication(
   return savedApplication;
 }
 
+export async function resubmitApplication(
+  application: ApplicantApplicationData,
+  applicantId?: string,
+  resubmissionNote?: string,
+): Promise<ApplicantApplicationData> {
+  return submitApplication(application, applicantId, resubmissionNote);
+}
+
 export async function syncApplicantStatusFromAdmin(
   application: ApplicantApplicationData | null,
 ): Promise<ApplicantApplicationData | null> {
@@ -721,8 +770,15 @@ export async function syncApplicantStatusFromAdmin(
   if (!adminCopy) return application;
 
   const mapped = mapAdminStatusToApplicant(adminCopy.status);
-  if (mapped === application.status) return application;
-  return saveApplication({ status: mapped }, application);
+  const adminNotes = adminCopy.reviewSubmission?.reviewerNotes ||
+    (Array.isArray(adminCopy.history) ? [...adminCopy.history].reverse().find((h) => h.note)?.note : undefined);
+
+  const updates: Partial<ApplicantApplicationData> = {};
+  if (mapped !== application.status) updates.status = mapped;
+  if (adminNotes && adminNotes !== application.reviewerNotes) updates.reviewerNotes = adminNotes;
+
+  if (Object.keys(updates).length === 0) return application;
+  return saveApplication(updates, application);
 }
 
 function mapAdminStatusToApplicant(

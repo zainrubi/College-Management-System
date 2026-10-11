@@ -32,11 +32,13 @@ import {
 } from "lucide-react";
 import { CompleteApplication, ApplicationStatus } from "@/types/applications";
 import {
-  getStoredApplications,
-  executeApplicationAction,
   APPLICATION_STATUS_CONFIG,
   getApplicationLifecycleStatus,
 } from "@/lib/mock-data/applications-data";
+import {
+  fetchAdminApplications,
+  updateAdminApplicationStatus,
+} from "@/lib/services/admin-admissions-service";
 import { ApplicationPreviewModal } from "@/components/admin/admissions/ApplicationPreviewModal";
 
 const PAGE_SIZE = 10;
@@ -47,7 +49,10 @@ const normalizeProgramValue = (value: string) => value.trim().replace(/\s+/g, " 
 
 export default function AdminAdmissionsPage() {
   const [applications, setApplications] = useState<CompleteApplication[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isPerformingAction, setIsPerformingAction] = useState(false);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -82,13 +87,36 @@ export default function AdminAdmissionsPage() {
   // Success message toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const loadApplications = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const result = await fetchAdminApplications();
+      setApplications(result.applications);
+    } catch (err) {
+      console.error("Failed to load admissions applications:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load admission applications from server"
+      );
+    } finally {
+      setIsLoading(false);
+      setIsLoaded(true);
+    }
+  };
+
   useEffect(() => {
-    setApplications(getStoredApplications());
-    setIsLoaded(true);
+    loadApplications();
   }, []);
 
-  const refreshApplications = () => {
-    setApplications(getStoredApplications());
+  const refreshApplications = async () => {
+    try {
+      const result = await fetchAdminApplications();
+      setApplications(result.applications);
+    } catch (err) {
+      console.error("Failed to refresh applications:", err);
+    }
   };
 
   const showToast = (msg: string) => {
@@ -97,39 +125,70 @@ export default function AdminAdmissionsPage() {
   };
 
   // Perform quick action from modal or table
-  const handlePerformAction = (
+  const handlePerformAction = async (
     appId: string,
     action: "accept" | "reject" | "request_info" | "put_on_hold",
     data?: { reason?: string; note?: string }
   ) => {
-    if ((action === "accept" || action === "reject" || action === "request_info" || action === "put_on_hold") && !(data?.reason || data?.note)?.trim()) {
+    if (
+      (action === "accept" ||
+        action === "reject" ||
+        action === "request_info" ||
+        action === "put_on_hold") &&
+      !(data?.reason || data?.note)?.trim()
+    ) {
       return;
     }
 
+    if (isPerformingAction) return;
+
     let newStatus: ApplicationStatus = "submitted";
-    let actionTitle = "Application Updated";
     let note = data?.reason || data?.note;
 
     if (action === "accept") {
       newStatus = "accepted";
-      actionTitle = "Admission Accepted";
       note = note || "Admission approved by Admin.";
     } else if (action === "reject") {
       newStatus = "rejected";
-      actionTitle = "Application Rejected";
     } else if (action === "request_info") {
       newStatus = "more_info_required";
-      actionTitle = "More Information Requested";
     } else if (action === "put_on_hold") {
       newStatus = "on_hold";
-      actionTitle = "Application Placed On Hold";
     }
 
-    const updated = executeApplicationAction(appId, newStatus, actionTitle, note);
-    if (updated) {
-      refreshApplications();
-      setSelectedApp(updated);
-      showToast(`Application ${updated.applicationNumber} updated to ${APPLICATION_STATUS_CONFIG[newStatus]?.label || newStatus}.`);
+    try {
+      setIsPerformingAction(true);
+      const result = await updateAdminApplicationStatus(appId, {
+        status: newStatus,
+        notes: note,
+        reviewerName: "Admissions Administrator",
+        reviewerRole: "Senior Registrar",
+      });
+
+      if (result.success && result.application) {
+        setApplications((prev) =>
+          prev.map((a) =>
+            a.id === appId || a.applicationNumber === appId || (a as { _id?: string })._id === appId
+              ? result.application
+              : a
+          )
+        );
+        setSelectedApp(result.application);
+        showToast(
+          `Application ${result.application.applicationNumber} updated to ${
+            APPLICATION_STATUS_CONFIG[newStatus]?.label || newStatus
+          }.`
+        );
+      }
+    } catch (err) {
+      console.error("Failed to update status:", err);
+      showToast(
+        err instanceof Error
+          ? `Error: ${err.message}`
+          : "Failed to update application status"
+      );
+    } finally {
+      setIsPerformingAction(false);
     }
   };
 
@@ -279,6 +338,15 @@ export default function AdminAdmissionsPage() {
             <Button
               variant="outline"
               size="sm"
+              leftIcon={<RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />}
+              onClick={loadApplications}
+              disabled={isLoading}
+            >
+              Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               leftIcon={<Download className="w-4 h-4" />}
               onClick={() => alert("Exporting applications as CSV…")}
             >
@@ -287,6 +355,19 @@ export default function AdminAdmissionsPage() {
           </div>
         }
       />
+
+      {/* ── Error Banner ──────────────────────────────────────────────────── */}
+      {error && (
+        <div className="mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl flex items-center justify-between gap-3 text-sm">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+            <span>{error}</span>
+          </div>
+          <Button size="sm" variant="outline" onClick={loadApplications}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       {/* ── Stats Strip ───────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6">
@@ -480,7 +561,16 @@ export default function AdminAdmissionsPage() {
             </thead>
 
             <tbody className="divide-y divide-border">
-              {paginated.length === 0 ? (
+              {isLoading && !isLoaded ? (
+                <tr>
+                  <td colSpan={8} className="px-6 py-16 text-center">
+                    <div className="flex flex-col items-center gap-3 text-text-muted">
+                      <div className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin"></div>
+                      <p className="text-sm font-semibold">Loading applications from MongoDB Atlas...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : paginated.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3 text-text-muted">

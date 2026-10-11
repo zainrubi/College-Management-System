@@ -11,6 +11,7 @@ import { Button } from "../ui/Button";
 import { BackToHome } from "../ui/BackToHome";
 import { MOCK_COLLEGE } from "@/lib/mock-data";
 import { loginApplicant, getApplicantPortalDestination } from "@/lib/services/admission-service";
+import { loginAdmin } from "@/lib/services/admin-admissions-service";
 import {
   GraduationCap,
   Lock,
@@ -174,6 +175,28 @@ export function LoginForm({
           } else {
             setErrorMsg(code && code !== "LOGIN_FAILED" ? code : "Unable to sign in. Please try again.");
           }
+        })
+        .finally(() => setIsSubmitting(false));
+      return;
+    }
+
+    if (role === "admin") {
+      loginAdmin(identifier, password)
+        .then((result) => {
+          login("admin", {
+            id: result.admin.id,
+            token: result.token,
+            name: result.admin.name,
+            email: result.admin.email,
+          });
+          router.push(redirectUrl || config.targetRoute);
+        })
+        .catch((err: unknown) => {
+          const msg =
+            err instanceof Error && err.message
+              ? err.message
+              : "Invalid administrator credentials";
+          setErrorMsg(msg);
         })
         .finally(() => setIsSubmitting(false));
       return;

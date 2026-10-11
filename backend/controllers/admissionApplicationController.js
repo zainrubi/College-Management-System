@@ -204,16 +204,32 @@ async function updateAdmissionDraft(req, res) {
     }
 
     try {
-        const application = await AdmissionApplication.findOne({ applicantId, status: "Draft" }).sort({ updatedAt: -1 });
+        let application = await AdmissionApplication.findOne({ applicantId, status: "Draft" }).sort({ updatedAt: -1 });
+        if (application && application.status && application.status !== "Draft") {
+            application = null;
+        }
+        if (!application) {
+            application = await AdmissionApplication.findOne({ applicantId, status: "More Information Required" }).sort({ updatedAt: -1 });
+            if (application && application.status && application.status !== "More Information Required") {
+                application = null;
+            }
+        }
+
         if (!application) {
             const existing = await AdmissionApplication.findOne({ applicantId }).sort({ updatedAt: -1 });
             if (!existing) return res.status(404).json({ message: "No application found" });
-            return res.status(409).json({ message: "Submitted applications cannot be edited" });
+            const msg = existing.status === "Submitted"
+                ? "Submitted applications cannot be edited"
+                : `Applications with status '${existing.status}' cannot be edited`;
+            return res.status(409).json({ message: msg });
         }
 
         application.set(toDottedUpdates(getFormData(req.body)));
         await application.save();
-        return res.status(200).json({ message: "Draft application saved", application });
+        const msg = application.status === "More Information Required"
+            ? "Application corrections saved"
+            : "Draft application saved";
+        return res.status(200).json({ message: msg, application });
     } catch (error) {
         return handleControllerError(res, error, "Draft update");
     }
@@ -228,6 +244,16 @@ async function submitAdmissionApplication(req, res) {
 
     try {
         let application = await AdmissionApplication.findOne({ applicantId, status: "Draft" }).sort({ updatedAt: -1 });
+        if (application && application.status && application.status !== "Draft") {
+            application = null;
+        }
+        if (!application) {
+            application = await AdmissionApplication.findOne({ applicantId, status: "More Information Required" }).sort({ updatedAt: -1 });
+            if (application && application.status && application.status !== "More Information Required") {
+                application = null;
+            }
+        }
+
         if (!application) {
             const existing = await AdmissionApplication.findOne({ applicantId }).sort({ updatedAt: -1 });
             if (!existing) {
@@ -237,21 +263,70 @@ async function submitAdmissionApplication(req, res) {
                     status: "Draft",
                 });
             } else {
-                return res.status(409).json({ message: "This application has already been submitted" });
+                const msg = existing.status === "Submitted"
+                    ? "This application has already been submitted"
+                    : `This application cannot be resubmitted while in status '${existing.status}'`;
+                return res.status(409).json({ message: msg });
             }
         }
 
+        const isResubmission = application.status === "More Information Required";
+        const previousStatus = application.status;
+
         application.set(toDottedUpdates(getFormData(req.body)));
+
+        if (req.body.reviewSubmission && typeof req.body.reviewSubmission.undertakingAgreed === "boolean") {
+            application.set("reviewSubmission.undertakingAgreed", req.body.reviewSubmission.undertakingAgreed);
+        }
+
         const errors = validateForSubmission(application);
         if (Object.keys(errors).length) {
             return res.status(400).json({ message: "Application is incomplete", errors });
         }
 
-        application.applicationNumber = await generateUniqueApplicationNumber();
+        if (!application.applicationNumber) {
+            application.applicationNumber = await generateUniqueApplicationNumber();
+        }
+
+        const now = new Date().toISOString();
         application.status = "Submitted";
-        application.set("reviewSubmission.submittedAt", new Date().toISOString());
+
+        if (isResubmission) {
+            application.set("reviewSubmission.resubmittedAt", now);
+        } else {
+            application.set("reviewSubmission.submittedAt", now);
+        }
+
+        const applicantName = req.user?.fullName || req.user?.name || application.personal?.fullName || "Applicant";
+        const resubmissionNote = typeof req.body.resubmissionNote === "string" && req.body.resubmissionNote.trim()
+            ? req.body.resubmissionNote.trim()
+            : (isResubmission
+                ? "Application corrected and resubmitted for review"
+                : "Submitted through Applicant Portal");
+
+        const auditEvent = {
+            id: `audit-${Date.now()}`,
+            action: isResubmission ? "Application Resubmitted" : "Online Application Submitted",
+            timestamp: now,
+            performedBy: applicantName,
+            role: "Applicant",
+            previousStatus,
+            newStatus: "Submitted",
+            note: resubmissionNote,
+        };
+
+        if (!Array.isArray(application.history)) {
+            application.history = [];
+        }
+        application.history.push(auditEvent);
+
         await application.save();
-        return res.status(200).json({ message: "Application submitted successfully", application });
+        return res.status(200).json({
+            message: isResubmission
+                ? "Application resubmitted successfully"
+                : "Application submitted successfully",
+            application,
+        });
     } catch (error) {
         return handleControllerError(res, error, "Application submission");
     }

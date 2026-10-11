@@ -30,7 +30,7 @@ const applicantSchema = new mongoose.Schema(
       select: false,
     },
   },
-  { timestamps: true },
+  { timestamps: true, bufferCommands: false },
 );
 
 applicantSchema.pre("save", async function hashPassword() {

@@ -140,4 +140,13 @@ export interface CompleteApplication {
 
   // Section J: Audit Trail / History
   history: ApplicationAuditEvent[];
+
+  // Review submission metadata
+  reviewSubmission?: {
+    reviewerNotes?: string;
+    reviewedAt?: string;
+    submittedAt?: string;
+    resubmittedAt?: string;
+    undertakingAgreed?: boolean;
+  };
 }

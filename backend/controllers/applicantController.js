@@ -1,9 +1,10 @@
+const mongoose = require("mongoose");
 const Applicant = require("../models/Applicant");
 const { signToken } = require("../utils/jwt");
 
 async function registerApplicant(req, res) {
     try {
-        const { fullName, phone, email, password } = req.body;
+        const { fullName, phone, email, password } = req.body || {};
 
         // Validations
         if (!fullName || typeof fullName !== "string" || fullName.trim().length < 3) {
@@ -35,6 +36,16 @@ async function registerApplicant(req, res) {
             });
         }
 
+        // Pre-check for existing registered phone number
+        const existingApplicant = await Applicant.findOne({ phone }).lean();
+        if (existingApplicant) {
+            return res.status(409).json({
+                success: false,
+                code: "PHONE_ALREADY_REGISTERED",
+                message: "This phone number is already registered. Please sign in instead.",
+            });
+        }
+
         // Create applicant payload (store email only if provided and non-empty)
         const applicantData = {
             fullName: fullName.trim(),
@@ -60,12 +71,35 @@ async function registerApplicant(req, res) {
         });
 
     } catch (error) {
+        // Handle database offline / buffering timeout errors
+        const isDbConnectionError = Boolean(
+            (error?.name === "MongooseError" && typeof error.message === "string" && (
+                error.message.includes("buffering timed out") ||
+                error.message.includes("before initial connection is complete") ||
+                error.message.includes("connection must be established") ||
+                error.message.includes("bufferCommands")
+            )) ||
+            error?.name === "MongooseServerSelectionError" ||
+            error?.name === "MongoNetworkError" ||
+            error?.name === "MongoTimeoutError" ||
+            error?.name === "MongoServerSelectionError"
+        );
+
+        if (isDbConnectionError) {
+            console.error("Database connection error during registration:", error.message);
+            return res.status(503).json({
+                success: false,
+                code: "DATABASE_UNAVAILABLE",
+                message: "Database service is temporarily unavailable. Please try again shortly.",
+            });
+        }
+
         // Handle MongoDB duplicate-key error code 11000
-        if (error?.code === 11000) {
+        if (error?.code === 11000 || (typeof error?.message === "string" && error.message.includes("E11000"))) {
             const isDuplicatePhone = Boolean(
                 error.keyPattern?.phone ||
                 error.keyValue?.phone ||
-                (typeof error.message === "string" && error.message.includes("phone_1"))
+                (typeof error.message === "string" && (error.message.includes("phone_1") || error.message.includes("phone")))
             );
 
             if (isDuplicatePhone) {
@@ -83,7 +117,7 @@ async function registerApplicant(req, res) {
             });
         }
 
-        // Mongoose validation
+        // Mongoose validation error
         if (error?.name === "ValidationError") {
             return res.status(400).json({
                 success: false,
@@ -160,6 +194,29 @@ async function loginApplicant(req, res) {
             },
         });
     } catch (error) {
+        // Handle database offline / buffering timeout errors
+        const isDbConnectionError = Boolean(
+            (error?.name === "MongooseError" && typeof error.message === "string" && (
+                error.message.includes("buffering timed out") ||
+                error.message.includes("before initial connection is complete") ||
+                error.message.includes("connection must be established") ||
+                error.message.includes("bufferCommands")
+            )) ||
+            error?.name === "MongooseServerSelectionError" ||
+            error?.name === "MongoNetworkError" ||
+            error?.name === "MongoTimeoutError" ||
+            error?.name === "MongoServerSelectionError"
+        );
+
+        if (isDbConnectionError) {
+            console.error("Database connection error during login:", error.message);
+            return res.status(503).json({
+                success: false,
+                code: "DATABASE_UNAVAILABLE",
+                message: "Database service is temporarily unavailable. Please try again shortly.",
+            });
+        }
+
         if (error.message?.includes("JWT_SECRET")) {
             console.error("Authentication configuration error: JWT_SECRET missing");
             return res.status(500).json({

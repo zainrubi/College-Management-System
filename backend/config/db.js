@@ -4,13 +4,15 @@ const mongoose = require("mongoose");
 
 const connectDB = async () => {
     try {
-        await mongoose.connect(process.env.MONGO_URI);
+        await mongoose.connect(process.env.MONGO_URI, {
+            serverSelectionTimeoutMS: 5000,
+        });
 
         console.log("MongoDB Connected ✅");
         console.log("MongoDB Host:", mongoose.connection.host);
         console.log("MongoDB Database:", mongoose.connection.name);
     } catch (error) {
-        console.log("MongoDB Error ❌", error);
+        console.log("MongoDB Error ❌", error.message);
         throw error;
     }
 };

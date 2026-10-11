@@ -92,6 +92,142 @@ const FORM_STEPS = [
   { step: 6, title: "Review & Submit", fullTitle: "Documents & Review", description: "Verification & submit" },
 ];
 
+interface CorrectionScope {
+  all: boolean;
+  personal: boolean;
+  contact: boolean;
+  guardian: boolean;
+  academic: boolean;
+  preferences: boolean;
+  documents: boolean;
+  documentKeys: {
+    matricResultCard: boolean;
+    cnicOrBForm: boolean;
+    guardianCnic: boolean;
+    photo: boolean;
+  };
+  targetSteps: number[];
+  stepGuidance: Record<number, string>;
+}
+
+function getCorrectionScope(notes?: string): CorrectionScope {
+  if (!notes || !notes.trim()) {
+    return {
+      all: true,
+      personal: true,
+      contact: true,
+      guardian: true,
+      academic: true,
+      preferences: true,
+      documents: true,
+      documentKeys: {
+        matricResultCard: true,
+        cnicOrBForm: true,
+        guardianCnic: true,
+        photo: true,
+      },
+      targetSteps: [1, 2, 3, 4, 5, 6],
+      stepGuidance: {
+        1: "Personal details",
+        2: "Contact & address",
+        3: "Guardian information",
+        4: "Academic records",
+        5: "Program preferences",
+        6: "Document uploads",
+      },
+    };
+  }
+
+  const lower = notes.toLowerCase();
+  const hasDoc = lower.includes("doc") || lower.includes("upload") || lower.includes("file") || lower.includes("scan") || lower.includes("card") || lower.includes("certificate") || lower.includes("photo") || lower.includes("picture") || lower.includes("b-form") || lower.includes("cnic");
+  const hasAcademic = lower.includes("academic") || lower.includes("matric") || lower.includes("inter") || lower.includes("mark") || lower.includes("roll") || lower.includes("board") || lower.includes("score") || lower.includes("grade") || lower.includes("year");
+  const hasPersonal = lower.includes("personal") || lower.includes("name") || lower.includes("dob") || lower.includes("birth") || lower.includes("gender") || lower.includes("religion") || lower.includes("nationality");
+  const hasContact = lower.includes("contact") || lower.includes("phone") || lower.includes("mobile") || lower.includes("address") || lower.includes("domicile") || lower.includes("email");
+  const hasGuardian = lower.includes("guardian") || lower.includes("father") || lower.includes("mother") || lower.includes("parent");
+  const hasPreferences = lower.includes("program") || lower.includes("discipline") || lower.includes("preference") || lower.includes("shift") || lower.includes("campus");
+
+  const anyMatched = hasDoc || hasAcademic || hasPersonal || hasContact || hasGuardian || hasPreferences;
+  if (!anyMatched) {
+    return {
+      all: true,
+      personal: true,
+      contact: true,
+      guardian: true,
+      academic: true,
+      preferences: true,
+      documents: true,
+      documentKeys: {
+        matricResultCard: true,
+        cnicOrBForm: true,
+        guardianCnic: true,
+        photo: true,
+      },
+      targetSteps: [1, 2, 3, 4, 5, 6],
+      stepGuidance: {
+        1: "Personal bio-data",
+        2: "Contact & address",
+        3: "Parent / guardian",
+        4: "Academic qualifications",
+        5: "Program preferences",
+        6: "Documents",
+      },
+    };
+  }
+
+  const docMatric = lower.includes("matric") || lower.includes("result") || lower.includes("ssc") || lower.includes("marksheet");
+  const docCnic = lower.includes("cnic") || lower.includes("b-form") || lower.includes("bform") || lower.includes("id card");
+  const docGuardian = lower.includes("guardian cnic") || lower.includes("father cnic");
+  const docPhoto = lower.includes("photo") || lower.includes("picture") || lower.includes("photograph");
+
+  const docKeys = {
+    matricResultCard: hasDoc && (docMatric || (!docCnic && !docGuardian && !docPhoto)),
+    cnicOrBForm: hasDoc && (docCnic || (!docMatric && !docGuardian && !docPhoto)),
+    guardianCnic: hasDoc && docGuardian,
+    photo: hasDoc && docPhoto,
+  };
+
+  const targetSteps: number[] = [];
+  const stepGuidance: Record<number, string> = {};
+
+  if (hasPersonal) {
+    targetSteps.push(1);
+    stepGuidance[1] = "Update personal identification & bio-data";
+  }
+  if (hasContact) {
+    targetSteps.push(2);
+    stepGuidance[2] = "Update mobile number, address, or domicile";
+  }
+  if (hasGuardian) {
+    targetSteps.push(3);
+    stepGuidance[3] = "Update parent/guardian details";
+  }
+  if (hasAcademic) {
+    targetSteps.push(4);
+    stepGuidance[4] = "Verify and correct academic marks and roll numbers";
+  }
+  if (hasPreferences) {
+    targetSteps.push(5);
+    stepGuidance[5] = "Adjust program preferences";
+  }
+  if (hasDoc) {
+    targetSteps.push(6);
+    stepGuidance[6] = "Re-upload the requested verification documents";
+  }
+
+  return {
+    all: false,
+    personal: hasPersonal,
+    contact: hasContact,
+    guardian: hasGuardian,
+    academic: hasAcademic,
+    preferences: hasPreferences,
+    documents: hasDoc,
+    documentKeys: docKeys,
+    targetSteps,
+    stepGuidance,
+  };
+}
+
 export default function ApplicantDashboardPage() {
   return (
     <ProtectedRoute allowedRoles={["applicant"]}>
@@ -124,6 +260,25 @@ function ApplicantDashboardContent() {
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [resubmissionNote, setResubmissionNote] = useState("");
+
+  const isMoreInfoRequired = appData.status === "More Information Required";
+  const correctionScope = isMoreInfoRequired ? getCorrectionScope(appData.reviewerNotes) : null;
+
+  const isFieldEditable = (
+    section: "personal" | "contact" | "guardian" | "academic" | "preferences" | "documents",
+    docKey?: string
+  ): boolean => {
+    if (appData.status === "Draft") return true;
+    if (appData.status === "More Information Required") {
+      if (!correctionScope || correctionScope.all) return true;
+      if (section === "documents" && docKey) {
+        return Boolean(correctionScope.documentKeys[docKey as keyof typeof correctionScope.documentKeys] || correctionScope.documents);
+      }
+      return Boolean(correctionScope[section]);
+    }
+    return false;
+  };
 
   useEffect(() => {
     const requestedTab = searchParams.get("tab");
@@ -176,7 +331,7 @@ function ApplicantDashboardContent() {
 
   // Academic level selection helper with automatic incompatible program reset
   const handleAcademicLevelSelect = (level: "Intermediate" | "Undergraduate") => {
-    if (appData.status !== "Draft") return;
+    if (!isFieldEditable("preferences")) return;
     if (appData.academicLevel === level) return;
 
     const updates: Partial<ApplicationData> = {
@@ -218,7 +373,9 @@ function ApplicantDashboardContent() {
       .then((saved) => {
         setAppData(saved);
         setSaveToastIsError(false);
-        setSaveToast("Draft saved successfully.");
+        setSaveToast(
+          isMoreInfoRequired ? "Application corrections saved successfully." : "Draft saved successfully."
+        );
       })
       .catch((error: unknown) => {
         void saveApplication({}, appData);
@@ -393,11 +550,15 @@ function ApplicantDashboardContent() {
     setStepErrorMessage(null);
 
     try {
-      const finalData = await submitApplication(appData, user?.id);
+      const finalData = await submitApplication(appData, user?.id, resubmissionNote);
       setAppData(finalData);
       setActiveTab("status");
       setSaveToastIsError(false);
-      setSaveToast(`Application submitted successfully! Official ID: ${finalData.appId}`);
+      setSaveToast(
+        isMoreInfoRequired
+          ? `Application resubmitted successfully! Returned to admissions review (ID: ${finalData.appId})`
+          : `Application submitted successfully! Official ID: ${finalData.appId}`
+      );
       setSubmitError(null);
       setStepErrorMessage(null);
       setTimeout(() => setSaveToast(null), 5000);
@@ -681,6 +842,21 @@ function ApplicantDashboardContent() {
               <Save className="w-3.5 h-3.5" />
               {isSavingDraft ? "Saving..." : "Save Progress"}
             </button>
+          ) : appData.status === "More Information Required" ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-violet-50 text-violet-800 text-xs font-semibold border border-violet-200">
+                <AlertCircle className="w-4 h-4 text-violet-600" />
+                <span>More Information Required</span>
+              </div>
+              <button
+                onClick={handleSaveDraft}
+                disabled={isSavingDraft}
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-violet-700 bg-white hover:bg-violet-50 border border-violet-300 transition-colors"
+              >
+                <Save className="w-3.5 h-3.5" />
+                {isSavingDraft ? "Saving..." : "Save Corrections"}
+              </button>
+            </div>
           ) : appData.status === "Submitted" ? (
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -690,11 +866,6 @@ function ApplicantDashboardContent() {
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-50 text-amber-800 text-xs font-semibold border border-amber-200">
               <Clock className="w-4 h-4 text-amber-600" />
               <span>Under Review ({appData.submittedAt})</span>
-            </div>
-          ) : appData.status === "More Information Required" ? (
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-violet-50 text-violet-800 text-xs font-semibold border border-violet-200">
-              <AlertCircle className="w-4 h-4 text-violet-600" />
-              <span>More Information Required</span>
             </div>
           ) : appData.status === "On Hold" ? (
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-orange-50 text-orange-800 text-xs font-semibold border border-orange-200">
@@ -812,16 +983,52 @@ function ApplicantDashboardContent() {
                       <ChevronRight className="w-4 h-4" />
                     </button>
                   )}
-                  {(appData.status === "Submitted" || appData.status === "Under Review" || appData.status === "More Information Required" || appData.status === "On Hold" || appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified" || appData.status === "Rejected") && (
+                  {appData.status === "More Information Required" && (
+                    <button
+                      onClick={() => {
+                        setFormStep(correctionScope?.targetSteps[0] || 1);
+                        openApplicationFlow("application");
+                      }}
+                      className="inline-flex items-center justify-center gap-2 min-h-11 bg-violet-700 text-white px-5 text-xs font-bold uppercase tracking-wider hover:bg-violet-800 transition-colors shadow-sm"
+                    >
+                      Update & Resubmit Application
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  )}
+                  {(appData.status === "Submitted" || appData.status === "Under Review" || appData.status === "On Hold" || appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified" || appData.status === "Rejected") && (
                     <button
                       onClick={() => openApplicationFlow("status")}
                       className="inline-flex items-center justify-center gap-2 min-h-11 bg-primary text-white px-5 text-xs font-bold uppercase tracking-wider hover:bg-primary-dark transition-colors"
                     >
-                      {appData.status === "More Information Required" ? "Update Application" : appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified" ? "View Next Steps" : "View Application"}
+                      {appData.status === "Accepted" || appData.status === "Admitted" || appData.status === "Merit Qualified" ? "View Next Steps" : "View Application"}
                       <ChevronRight className="w-4 h-4" />
                     </button>
                   )}
                 </div>
+
+                {isMoreInfoRequired && (
+                  <div className="mt-6 p-5 bg-violet-50/90 border border-violet-300 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-violet-700 shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <h4 className="text-xs font-extrabold uppercase tracking-wide text-violet-950">
+                            Administrator Feedback on Your Application
+                          </h4>
+                          {appData.reviewedAt && (
+                            <span className="text-[10px] text-violet-700 font-semibold">Reviewed on: {appData.reviewedAt}</span>
+                          )}
+                        </div>
+                        <div className="mt-2 p-3 bg-white border border-violet-200 text-xs italic text-text-primary rounded-xs">
+                          "{appData.reviewerNotes || "Please review and update the required fields in your application."}"
+                        </div>
+                        <p className="mt-2 text-xs text-violet-800 leading-relaxed">
+                          Only the sections requested by admissions are unlocked for correction. Your application number (<span className="font-mono font-bold">{appData.appId}</span>) will be preserved upon resubmission.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </section>
 
               <aside className="bg-white border border-border p-6 shadow-sm">
@@ -1015,12 +1222,29 @@ function ApplicantDashboardContent() {
               </div>
             )}
 
-            {/* Application Locked Alert if Submitted */}
-            {appData.status !== "Draft" && (
+            {/* Application Locked Alert if Submitted / Feedback Alert if More Info Required */}
+            {isMoreInfoRequired ? (
+              <div className="p-4 bg-violet-50 border-2 border-violet-400 space-y-2">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-violet-700 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <h4 className="text-sm font-bold text-violet-950">
+                      Admissions Feedback — More Information Required
+                    </h4>
+                    <p className="text-xs text-violet-800 mt-0.5">
+                      The admissions committee requested corrections on your application (ID: <span className="font-mono font-bold">{appData.appId}</span>). Unlocked fields and documents can be edited below. Once updated, resubmit your application from Step 6.
+                    </p>
+                    <div className="mt-2 p-2.5 bg-white border border-violet-200 text-xs italic text-text-primary rounded-xs">
+                      "{appData.reviewerNotes || "Please review and correct the indicated fields and documents."}"
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : appData.status !== "Draft" ? (
               <Alert variant="info" title="Application Submitted" className="rounded-none">
                 Your application (ID: <span className="font-bold">{appData.appId}</span>) has been submitted on {appData.submittedAt}. You can review your details below or check status in the Application Status tab.
               </Alert>
-            )}
+            ) : null}
 
             {/* FORM CARDS BY STEP */}
             <div className="bg-white border border-border shadow-md">
@@ -1028,15 +1252,33 @@ function ApplicantDashboardContent() {
               {/* ── STEP 1: PERSONAL INFORMATION ────────────────────────────────── */}
               {formStep === 1 && (
                 <div className="portal-step-in p-6 sm:p-8 space-y-6">
-                  <div className="border-b border-border pb-4">
-                    <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
-                      <User className="w-5 h-5 text-primary" />
-                      Step 1: Personal Information
-                    </h3>
-                    <p className="text-xs text-text-secondary mt-1">
-                      Enter your personal bio data as registered on your official B-Form / CNIC.
-                    </p>
+                  <div className="border-b border-border pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
+                        <User className="w-5 h-5 text-primary" />
+                        Step 1: Personal Information
+                      </h3>
+                      <p className="text-xs text-text-secondary mt-1">
+                        Enter your personal bio data as registered on your official B-Form / CNIC.
+                      </p>
+                    </div>
+                    {isMoreInfoRequired && (
+                      <span className={`text-[11px] font-bold px-2.5 py-1 border self-start sm:self-auto ${
+                        isFieldEditable("personal")
+                          ? "bg-amber-100 text-amber-900 border-amber-300"
+                          : "bg-slate-100 text-slate-600 border-slate-300"
+                      }`}>
+                        {isFieldEditable("personal") ? "Corrections Unlocked" : "Section Locked"}
+                      </span>
+                    )}
                   </div>
+
+                  {isMoreInfoRequired && !isFieldEditable("personal") && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-slate-400" />
+                      <span>This section is locked because the reviewer did not request personal info changes.</span>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
 
@@ -1050,7 +1292,7 @@ function ApplicantDashboardContent() {
                           saveProgress({ fullName: e.target.value });
                           if (stepErrors.fullName) setStepErrors({ ...stepErrors, fullName: "" });
                         }}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("personal")}
                       />
                     </FormField>
 
@@ -1063,7 +1305,7 @@ function ApplicantDashboardContent() {
                           saveProgress({ dob: e.target.value });
                           if (stepErrors.dob) setStepErrors({ ...stepErrors, dob: "" });
                         }}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("personal")}
                       />
                     </FormField>
 
@@ -1072,7 +1314,7 @@ function ApplicantDashboardContent() {
                       <Select
                         value={appData.gender}
                         onChange={(e) => saveProgress({ gender: e.target.value })}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("personal")}
                       >
                         <option value="Male">Male</option>
                         <option value="Female">Female</option>
@@ -1085,7 +1327,7 @@ function ApplicantDashboardContent() {
                       <Select
                         value={appData.idType}
                         onChange={(e) => saveProgress({ idType: e.target.value as any })}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("personal")}
                       >
                         <option value="B-Form / Juvenile Card">B-Form / Juvenile Card (Under 18)</option>
                         <option value="CNIC">National ID Card (CNIC)</option>
@@ -1102,7 +1344,7 @@ function ApplicantDashboardContent() {
                           saveProgress({ idNumber: e.target.value });
                           if (stepErrors.idNumber) setStepErrors({ ...stepErrors, idNumber: "" });
                         }}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("personal")}
                       />
                     </FormField>
 
@@ -1116,7 +1358,7 @@ function ApplicantDashboardContent() {
                           saveProgress({ nationality: e.target.value });
                           if (stepErrors.nationality) setStepErrors({ ...stepErrors, nationality: "" });
                         }}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("personal")}
                       />
                     </FormField>
 
@@ -1125,7 +1367,7 @@ function ApplicantDashboardContent() {
                       <Select
                         value={appData.religion}
                         onChange={(e) => saveProgress({ religion: e.target.value })}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("personal")}
                       >
                         <option value="Islam">Islam</option>
                         <option value="Christianity">Christianity</option>
@@ -1148,7 +1390,7 @@ function ApplicantDashboardContent() {
                       <Select
                         value={appData.bloodGroup}
                         onChange={(e) => saveProgress({ bloodGroup: e.target.value })}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("personal")}
                       >
                         <option value="">Select Blood Group...</option>
                         <option value="A+">A+</option>
@@ -1169,15 +1411,33 @@ function ApplicantDashboardContent() {
               {/* ── STEP 2: CONTACT & ADDRESS ────────────────────────────────────── */}
               {formStep === 2 && (
                 <div className="portal-step-in p-6 sm:p-8 space-y-6">
-                  <div className="border-b border-border pb-4">
-                    <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
-                      <MapPin className="w-5 h-5 text-primary" />
-                      Step 2: Contact & Address
-                    </h3>
-                    <p className="text-xs text-text-secondary mt-1">
-                      Provide your active mobile number, optional email, and current permanent residential address.
-                    </p>
+                  <div className="border-b border-border pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
+                        <MapPin className="w-5 h-5 text-primary" />
+                        Step 2: Contact & Address
+                      </h3>
+                      <p className="text-xs text-text-secondary mt-1">
+                        Provide your active mobile number, optional email, and current permanent residential address.
+                      </p>
+                    </div>
+                    {isMoreInfoRequired && (
+                      <span className={`text-[11px] font-bold px-2.5 py-1 border self-start sm:self-auto ${
+                        isFieldEditable("contact")
+                          ? "bg-amber-100 text-amber-900 border-amber-300"
+                          : "bg-slate-100 text-slate-600 border-slate-300"
+                      }`}>
+                        {isFieldEditable("contact") ? "Corrections Unlocked" : "Section Locked"}
+                      </span>
+                    )}
                   </div>
+
+                  {isMoreInfoRequired && !isFieldEditable("contact") && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-slate-400" />
+                      <span>This section is locked because the reviewer did not request contact details changes.</span>
+                    </div>
+                  )}
 
                   {/* Contact Numbers & Email */}
                   <div className="space-y-4">
@@ -1199,7 +1459,7 @@ function ApplicantDashboardContent() {
                             saveProgress({ phone: filtered });
                             if (stepErrors.phone) setStepErrors({ ...stepErrors, phone: "" });
                           }}
-                          disabled={appData.status !== "Draft"}
+                          disabled={!isFieldEditable("contact")}
                         />
                       </FormField>
 
@@ -1219,7 +1479,7 @@ function ApplicantDashboardContent() {
                           placeholder="applicant@gmail.com (optional)"
                           value={appData.email}
                           onChange={(e) => saveProgress({ email: e.target.value })}
-                          disabled={appData.status !== "Draft"}
+                          disabled={!isFieldEditable("contact")}
                         />
                       </FormField>
 
@@ -1239,7 +1499,7 @@ function ApplicantDashboardContent() {
                             saveProgress({ domicile: e.target.value });
                             if (stepErrors.domicile) setStepErrors({ ...stepErrors, domicile: "" });
                           }}
-                          disabled={appData.status !== "Draft"}
+                          disabled={!isFieldEditable("contact")}
                         >
                           <option value="Kasur">Kasur</option>
                           <option value="Lahore">Lahore</option>
@@ -1259,7 +1519,7 @@ function ApplicantDashboardContent() {
                           saveProgress({ address: e.target.value });
                           if (stepErrors.address) setStepErrors({ ...stepErrors, address: "" });
                         }}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("contact")}
                         rows={4}
                       />
                     </FormField>
@@ -1270,15 +1530,33 @@ function ApplicantDashboardContent() {
               {/* ── STEP 3: PARENT / GUARDIAN INFORMATION ─────────────────────────── */}
               {formStep === 3 && (
                 <div className="portal-step-in p-6 sm:p-8 space-y-6">
-                  <div className="border-b border-border pb-4">
-                    <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
-                      <ShieldCheck className="w-5 h-5 text-primary" />
-                      Step 3: Parent / Guardian Information
-                    </h3>
-                    <p className="text-xs text-text-secondary mt-1">
-                      Provide parent or legal guardian details for emergency contact and official college records.
-                    </p>
+                  <div className="border-b border-border pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-primary" />
+                        Step 3: Parent / Guardian Information
+                      </h3>
+                      <p className="text-xs text-text-secondary mt-1">
+                        Provide parent or legal guardian details for emergency contact and official college records.
+                      </p>
+                    </div>
+                    {isMoreInfoRequired && (
+                      <span className={`text-[11px] font-bold px-2.5 py-1 border self-start sm:self-auto ${
+                        isFieldEditable("guardian")
+                          ? "bg-amber-100 text-amber-900 border-amber-300"
+                          : "bg-slate-100 text-slate-600 border-slate-300"
+                      }`}>
+                        {isFieldEditable("guardian") ? "Corrections Unlocked" : "Section Locked"}
+                      </span>
+                    )}
                   </div>
+
+                  {isMoreInfoRequired && !isFieldEditable("guardian") && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-slate-400" />
+                      <span>This section is locked because the reviewer did not request guardian details changes.</span>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
 
@@ -1292,7 +1570,7 @@ function ApplicantDashboardContent() {
                           saveProgress({ fatherName: e.target.value });
                           if (stepErrors.fatherName) setStepErrors({ ...stepErrors, fatherName: "" });
                         }}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("guardian")}
                       />
                     </FormField>
 
@@ -1306,7 +1584,7 @@ function ApplicantDashboardContent() {
                           saveProgress({ motherName: e.target.value });
                           if (stepErrors.motherName) setStepErrors({ ...stepErrors, motherName: "" });
                         }}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("guardian")}
                       />
                     </FormField>
 
@@ -1323,7 +1601,7 @@ function ApplicantDashboardContent() {
                           saveProgress({ altPhone: filtered });
                           if (stepErrors.altPhone) setStepErrors({ ...stepErrors, altPhone: "" });
                         }}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("guardian")}
                       />
                     </FormField>
 
@@ -1334,15 +1612,33 @@ function ApplicantDashboardContent() {
               {/* ── STEP 4: ACADEMIC QUALIFICATIONS ─────────────────────────────── */}
               {formStep === 4 && (
                 <div className="portal-step-in p-6 sm:p-8 space-y-6">
-                  <div className="border-b border-border pb-4">
-                    <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
-                      <Award className="w-5 h-5 text-primary" />
-                      Step 4: Academic Information
-                    </h3>
-                    <p className="text-xs text-text-secondary mt-1">
-                      Enter your Matriculation / Secondary Education credentials and result marks.
-                    </p>
+                  <div className="border-b border-border pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
+                        <Award className="w-5 h-5 text-primary" />
+                        Step 4: Academic Information
+                      </h3>
+                      <p className="text-xs text-text-secondary mt-1">
+                        Enter your Matriculation / Secondary Education credentials and result marks.
+                      </p>
+                    </div>
+                    {isMoreInfoRequired && (
+                      <span className={`text-[11px] font-bold px-2.5 py-1 border self-start sm:self-auto ${
+                        isFieldEditable("academic")
+                          ? "bg-amber-100 text-amber-900 border-amber-300"
+                          : "bg-slate-100 text-slate-600 border-slate-300"
+                      }`}>
+                        {isFieldEditable("academic") ? "Corrections Unlocked" : "Section Locked"}
+                      </span>
+                    )}
                   </div>
+
+                  {isMoreInfoRequired && !isFieldEditable("academic") && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-slate-400" />
+                      <span>This section is locked because the reviewer did not request academic records changes.</span>
+                    </div>
+                  )}
 
                   {/* Matric Section */}
                   <div className="p-5 bg-background-secondary border border-border space-y-4">
@@ -1356,7 +1652,7 @@ function ApplicantDashboardContent() {
                         <Select
                           value={appData.matricBoard}
                           onChange={(e) => saveProgress({ matricBoard: e.target.value })}
-                          disabled={appData.status !== "Draft"}
+                          disabled={!isFieldEditable("academic")}
                         >
                           <option value="BISE Lahore">BISE Lahore</option>
                           <option value="BISE Multan">BISE Multan</option>
@@ -1377,7 +1673,7 @@ function ApplicantDashboardContent() {
                             saveProgress({ matricRollNo: e.target.value });
                             if (stepErrors.matricRollNo) setStepErrors({ ...stepErrors, matricRollNo: "" });
                           }}
-                          disabled={appData.status !== "Draft"}
+                          disabled={!isFieldEditable("academic")}
                         />
                       </FormField>
 
@@ -1390,7 +1686,7 @@ function ApplicantDashboardContent() {
                             saveProgress({ matricYear: e.target.value });
                             if (stepErrors.matricYear) setStepErrors({ ...stepErrors, matricYear: "" });
                           }}
-                          disabled={appData.status !== "Draft"}
+                          disabled={!isFieldEditable("academic")}
                         />
                       </FormField>
 
@@ -1398,7 +1694,7 @@ function ApplicantDashboardContent() {
                         <Select
                           value={appData.matricGroup}
                           onChange={(e) => saveProgress({ matricGroup: e.target.value })}
-                          disabled={appData.status !== "Draft"}
+                          disabled={!isFieldEditable("academic")}
                         >
                           <option value="Science (Biology)">Science Group (Biology)</option>
                           <option value="Science (Computer)">Science Group (Computer Science)</option>
@@ -1415,7 +1711,7 @@ function ApplicantDashboardContent() {
                             saveProgress({ matricTotalMarks: e.target.value });
                             if (stepErrors.matricTotalMarks) setStepErrors({ ...stepErrors, matricTotalMarks: "" });
                           }}
-                          disabled={appData.status !== "Draft"}
+                          disabled={!isFieldEditable("academic")}
                         />
                       </FormField>
 
@@ -1428,7 +1724,7 @@ function ApplicantDashboardContent() {
                             saveProgress({ matricObtainedMarks: e.target.value });
                             if (stepErrors.matricObtainedMarks) setStepErrors({ ...stepErrors, matricObtainedMarks: "" });
                           }}
-                          disabled={appData.status !== "Draft"}
+                          disabled={!isFieldEditable("academic")}
                         />
                       </FormField>
 
@@ -1460,7 +1756,7 @@ function ApplicantDashboardContent() {
                       <Select
                         value={appData.interStatus}
                         onChange={(e) => saveProgress({ interStatus: e.target.value as any })}
-                        disabled={appData.status !== "Draft"}
+                        disabled={!isFieldEditable("academic")}
                       >
                         <option value="Not Applicable (Applying for Inter)">Not Applicable (Applying for 1st Year Inter)</option>
                         <option value="Awaiting Result">Awaiting Part-II Result (Applying for BS)</option>
@@ -1476,7 +1772,7 @@ function ApplicantDashboardContent() {
                             placeholder="e.g. BISE Lahore / Superior College"
                             value={appData.interBoard || ""}
                             onChange={(e) => saveProgress({ interBoard: e.target.value })}
-                            disabled={appData.status !== "Draft"}
+                            disabled={!isFieldEditable("academic")}
                           />
                         </FormField>
 
@@ -1486,7 +1782,7 @@ function ApplicantDashboardContent() {
                             placeholder="e.g. 192834"
                             value={appData.interRollNo || ""}
                             onChange={(e) => saveProgress({ interRollNo: e.target.value })}
-                            disabled={appData.status !== "Draft"}
+                            disabled={!isFieldEditable("academic")}
                           />
                         </FormField>
 
@@ -1496,7 +1792,7 @@ function ApplicantDashboardContent() {
                             placeholder="e.g. 910"
                             value={appData.interObtainedMarks || ""}
                             onChange={(e) => saveProgress({ interObtainedMarks: e.target.value })}
-                            disabled={appData.status !== "Draft"}
+                            disabled={!isFieldEditable("academic")}
                           />
                         </FormField>
                       </div>
@@ -1509,15 +1805,33 @@ function ApplicantDashboardContent() {
               {/* ── STEP 5: PROGRAM & PREFERENCES ───────────────────────────────── */}
               {formStep === 5 && (
                 <div className="portal-step-in p-6 sm:p-8 space-y-6">
-                  <div className="border-b border-border pb-4">
-                    <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
-                      <GraduationCap className="w-5 h-5 text-primary" />
-                      Step 5: Program & Campus Preferences
-                    </h3>
-                    <p className="text-xs text-text-secondary mt-1">
-                      Choose your intended academic discipline and program preferences for Fall 2026.
-                    </p>
+                  <div className="border-b border-border pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-lg font-extrabold text-text-primary flex items-center gap-2">
+                        <GraduationCap className="w-5 h-5 text-primary" />
+                        Step 5: Program & Campus Preferences
+                      </h3>
+                      <p className="text-xs text-text-secondary mt-1">
+                        Choose your intended academic discipline and program preferences for Fall 2026.
+                      </p>
+                    </div>
+                    {isMoreInfoRequired && (
+                      <span className={`text-[11px] font-bold px-2.5 py-1 border self-start sm:self-auto ${
+                        isFieldEditable("preferences")
+                          ? "bg-amber-100 text-amber-900 border-amber-300"
+                          : "bg-slate-100 text-slate-600 border-slate-300"
+                      }`}>
+                        {isFieldEditable("preferences") ? "Corrections Unlocked" : "Section Locked"}
+                      </span>
+                    )}
                   </div>
+
+                  {isMoreInfoRequired && !isFieldEditable("preferences") && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-slate-400" />
+                      <span>This section is locked because the reviewer did not request program preference changes.</span>
+                    </div>
+                  )}
 
                   <div className="space-y-6">
 
@@ -1543,12 +1857,11 @@ function ApplicantDashboardContent() {
                           role="radio"
                           aria-checked={appData.academicLevel === "Intermediate"}
                           onClick={() => handleAcademicLevelSelect("Intermediate")}
-                          disabled={appData.status !== "Draft"}
-                          className={`group relative text-left p-5 border-2 transition-all cursor-pointer rounded-sm ${
-                            appData.academicLevel === "Intermediate"
-                              ? "border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/20"
-                              : "border-border bg-white hover:border-primary/40 hover:bg-background-secondary/30"
-                          } ${appData.status !== "Draft" ? "cursor-not-allowed opacity-60" : ""}`}
+                          disabled={!isFieldEditable("preferences")}
+                          className={`group relative text-left p-5 border-2 transition-all cursor-pointer rounded-sm ${appData.academicLevel === "Intermediate"
+                            ? "border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/20"
+                            : "border-border bg-white hover:border-primary/40 hover:bg-background-secondary/30"
+                            } ${!isFieldEditable("preferences") ? "cursor-not-allowed opacity-60" : ""}`}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="space-y-1.5 flex-1 min-w-0">
@@ -1567,11 +1880,10 @@ function ApplicantDashboardContent() {
                               </p>
                             </div>
                             <div
-                              className={`shrink-0 mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                                appData.academicLevel === "Intermediate"
-                                  ? "border-primary bg-primary text-white"
-                                  : "border-border group-hover:border-primary/50"
-                              }`}
+                              className={`shrink-0 mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${appData.academicLevel === "Intermediate"
+                                ? "border-primary bg-primary text-white"
+                                : "border-border group-hover:border-primary/50"
+                                }`}
                             >
                               {appData.academicLevel === "Intermediate" && (
                                 <div className="w-2 h-2 rounded-full bg-white" />
@@ -1586,12 +1898,11 @@ function ApplicantDashboardContent() {
                           role="radio"
                           aria-checked={appData.academicLevel === "Undergraduate"}
                           onClick={() => handleAcademicLevelSelect("Undergraduate")}
-                          disabled={appData.status !== "Draft"}
-                          className={`group relative text-left p-5 border-2 transition-all cursor-pointer rounded-sm ${
-                            appData.academicLevel === "Undergraduate"
-                              ? "border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/20"
-                              : "border-border bg-white hover:border-primary/40 hover:bg-background-secondary/30"
-                          } ${appData.status !== "Draft" ? "cursor-not-allowed opacity-60" : ""}`}
+                          disabled={!isFieldEditable("preferences")}
+                          className={`group relative text-left p-5 border-2 transition-all cursor-pointer rounded-sm ${appData.academicLevel === "Undergraduate"
+                            ? "border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/20"
+                            : "border-border bg-white hover:border-primary/40 hover:bg-background-secondary/30"
+                            } ${!isFieldEditable("preferences") ? "cursor-not-allowed opacity-60" : ""}`}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="space-y-1.5 flex-1 min-w-0">
@@ -1610,11 +1921,10 @@ function ApplicantDashboardContent() {
                               </p>
                             </div>
                             <div
-                              className={`shrink-0 mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                                appData.academicLevel === "Undergraduate"
-                                  ? "border-primary bg-primary text-white"
-                                  : "border-border group-hover:border-primary/50"
-                              }`}
+                              className={`shrink-0 mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${appData.academicLevel === "Undergraduate"
+                                ? "border-primary bg-primary text-white"
+                                : "border-border group-hover:border-primary/50"
+                                }`}
                             >
                               {appData.academicLevel === "Undergraduate" && (
                                 <div className="w-2 h-2 rounded-full bg-white" />
@@ -1654,7 +1964,7 @@ function ApplicantDashboardContent() {
                                 });
                               }
                             }}
-                            disabled={appData.status !== "Draft"}
+                            disabled={!isFieldEditable("preferences")}
                           >
                             <option value="" disabled>-- Select Primary Program --</option>
                             {(appData.academicLevel === "Intermediate"
@@ -1676,7 +1986,7 @@ function ApplicantDashboardContent() {
                           <Select
                             value={appData.secondaryProgram || "None"}
                             onChange={(e) => saveProgress({ secondaryProgram: e.target.value })}
-                            disabled={appData.status !== "Draft"}
+                            disabled={!isFieldEditable("preferences")}
                           >
                             <option value="None">None (Single Preference)</option>
                             {(appData.academicLevel === "Intermediate"
@@ -1733,21 +2043,36 @@ function ApplicantDashboardContent() {
                       ].map((doc) => {
                         const isUploaded = !!appData.documents[doc.key as keyof typeof appData.documents];
                         const hasError = !!stepErrors[doc.key];
+                        const canEditDoc = appData.status === "Draft" || isFieldEditable("documents", doc.key);
+                        const isRequestedDoc = isMoreInfoRequired && isFieldEditable("documents", doc.key);
                         return (
-                          <div key={doc.key} className={`min-w-0 p-5 border space-y-3 ${hasError ? "border-rose-500 bg-rose-50/50" : "border-border bg-background-secondary"}`}>
+                          <div key={doc.key} className={`min-w-0 p-5 border space-y-3 ${
+                            hasError
+                              ? "border-rose-500 bg-rose-50/50"
+                              : isRequestedDoc
+                                ? "border-amber-300 bg-amber-50/30"
+                                : "border-border bg-background-secondary"
+                          }`}>
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <h4 className="text-xs font-bold text-text-primary">
-                                  {doc.title} {doc.required && <span className="text-rose-500">*</span>}
-                                </h4>
-                                <p className="text-[11px] text-text-secondary">{doc.desc}</p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h4 className="text-xs font-bold text-text-primary">
+                                    {doc.title} {doc.required && <span className="text-rose-500">*</span>}
+                                  </h4>
+                                  {isRequestedDoc && (
+                                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-1.5 py-0.5">
+                                      Needs Correction
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-text-secondary mt-0.5">{doc.desc}</p>
                               </div>
                               {isUploaded ? (
-                                <span className="portal-success text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 border border-emerald-300">
+                                <span className="portal-success text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 border border-emerald-300 shrink-0">
                                   Uploaded
                                 </span>
                               ) : (
-                                <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 border border-amber-300">
+                                <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 border border-amber-300 shrink-0">
                                   Pending
                                 </span>
                               )}
@@ -1757,7 +2082,7 @@ function ApplicantDashboardContent() {
                               <p className="text-xs font-medium text-rose-600">{stepErrors[doc.key]}</p>
                             )}
 
-                            {appData.status === "Draft" && (
+                            {canEditDoc ? (
                               <label className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 border border-border bg-white px-3 text-center text-xs font-semibold text-text-primary transition-colors hover:border-primary">
                                 <Upload className="w-3.5 h-3.5 text-primary" />
                                 <span>{isUploaded ? "Replace File" : "Choose File to Upload"}</span>
@@ -1781,6 +2106,10 @@ function ApplicantDashboardContent() {
                                   }}
                                 />
                               </label>
+                            ) : (
+                              <div className="text-[11px] text-text-muted italic py-1">
+                                Document locked for editing.
+                              </div>
                             )}
                           </div>
                         );
@@ -1844,7 +2173,7 @@ function ApplicantDashboardContent() {
                         type="checkbox"
                         checked={appData.undertakingAgreed}
                         onChange={(e) => saveProgress({ undertakingAgreed: e.target.checked })}
-                        disabled={appData.status !== "Draft"}
+                        disabled={appData.status !== "Draft" && !isMoreInfoRequired}
                         className="mt-0.5 text-primary border-border focus:ring-primary"
                       />
                       <span className="text-text-primary font-medium leading-relaxed">
@@ -1861,7 +2190,64 @@ function ApplicantDashboardContent() {
                     </div>
                   )}
 
-                  {appData.status === "Draft" ? (
+                  {isMoreInfoRequired ? (
+                    <div className="p-6 bg-violet-50/80 border-2 border-violet-300 space-y-4">
+                      <div>
+                        <h4 className="text-sm font-extrabold text-violet-950 flex items-center gap-2">
+                          <Send className="w-4 h-4 text-violet-700" />
+                          Ready to Resubmit Application for Committee Review
+                        </h4>
+                        <p className="text-xs text-violet-800 mt-1">
+                          Carefully verify all corrected sections before resubmitting. Your official application number (<span className="font-mono font-bold">{appData.appId}</span>) will remain unchanged.
+                        </p>
+                      </div>
+
+                      <FormField
+                        label={
+                          <span className="flex items-center gap-2">
+                            <span>Applicant Remarks on Corrections</span>
+                            <span className="text-[10px] font-bold text-text-muted bg-white border border-border px-1.5 py-0.5">
+                              Optional
+                            </span>
+                          </span>
+                        }
+                        helperText="Provide any clarifying comments regarding the documents or fields you corrected."
+                      >
+                        <Textarea
+                          rows={3}
+                          placeholder="e.g. Uploaded verified matriculation result card scan and updated father contact details as requested..."
+                          value={resubmissionNote}
+                          onChange={(e) => setResubmissionNote(e.target.value)}
+                          disabled={isSubmitting}
+                          className="bg-white"
+                        />
+                      </FormField>
+
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
+                        <Button
+                          variant="primary"
+                          className="px-8 py-3 font-bold uppercase tracking-wider text-xs rounded-none bg-violet-700 hover:bg-violet-800 border-violet-800 text-white"
+                          disabled={isSubmitting || !appData.undertakingAgreed || !appData.fullName || !appData.idNumber}
+                          onClick={handleSubmitApplication}
+                          isLoading={isSubmitting}
+                          rightIcon={!isSubmitting ? <Send className="w-4 h-4" /> : undefined}
+                        >
+                          {isSubmitting ? "Resubmitting Application..." : "Resubmit Application for Review"}
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          className="px-6 py-3 font-bold uppercase tracking-wider text-xs rounded-none border-border bg-white hover:bg-background-secondary"
+                          disabled={isSavingDraft || isSubmitting}
+                          onClick={handleSaveDraft}
+                          isLoading={isSavingDraft}
+                          leftIcon={<Save className="w-4 h-4" />}
+                        >
+                          Save Progress Draft
+                        </Button>
+                      </div>
+                    </div>
+                  ) : appData.status === "Draft" ? (
                     <Button
                       variant="primary"
                       className="w-full sm:w-auto px-8 py-3 font-bold uppercase tracking-wider text-xs rounded-none"
@@ -1874,7 +2260,7 @@ function ApplicantDashboardContent() {
                     </Button>
                   ) : (
                     <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
-                      Your application has been submitted and locked for review.
+                      Your application has been submitted and locked for review. Status: <span className="font-bold">{appData.status}</span>
                     </div>
                   )}
                 </div>
@@ -1926,6 +2312,57 @@ function ApplicantDashboardContent() {
               </Alert>
             )}
 
+            {isMoreInfoRequired && (
+              <div className="p-6 bg-violet-50 border-2 border-violet-400 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-6 h-6 text-violet-700 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-base font-bold text-violet-950">
+                        Action Required: Admissions Reviewer Requested Information
+                      </h4>
+                      <p className="text-xs text-violet-800 mt-1">
+                        The admissions committee needs additional details or updated verification documents to proceed with your enrollment.
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant="warning" className="self-start sm:self-auto">
+                    More Information Required
+                  </Badge>
+                </div>
+
+                <div className="bg-white p-4 border border-violet-200 rounded-xs">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block mb-1">
+                    Reviewer Notes & Instructions
+                  </span>
+                  <p className="text-xs font-semibold text-text-primary whitespace-pre-wrap">
+                    "{appData.reviewerNotes || "Please review and correct the indicated fields and documents."}"
+                  </p>
+                  {appData.reviewedAt && (
+                    <p className="text-[11px] text-text-muted mt-2">
+                      Review recorded on: {appData.reviewedAt}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <Button
+                    variant="primary"
+                    className="bg-violet-700 hover:bg-violet-800 border-violet-800 text-white rounded-none text-xs"
+                    onClick={() => {
+                      setActiveTab("application");
+                      if (correctionScope?.targetSteps?.length) {
+                        setFormStep(correctionScope.targetSteps[0]);
+                      }
+                    }}
+                    rightIcon={<ChevronRight className="w-4 h-4" />}
+                  >
+                    Update Application & Resubmit
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white border border-border p-6 sm:p-8 space-y-6 shadow-md">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-6">
                 <div>
@@ -1951,7 +2388,14 @@ function ApplicantDashboardContent() {
               <div className="space-y-6 pt-4">
                 {[
                   { title: "Application Submitted", desc: "Online application submitted successfully", done: appData.status !== "Draft" },
-                  { title: "Under Committee Review", desc: "Documents and credentials verified by admissions desk", done: appData.status === "Submitted" || appData.status === "Under Review" || appData.status === "Merit Qualified" || appData.status === "Admitted" },
+                  {
+                    title: isMoreInfoRequired ? "Admissions Review (Action Required)" : "Under Committee Review",
+                    desc: isMoreInfoRequired
+                      ? "Reviewer requested updates or additional documents"
+                      : "Documents and credentials verified by admissions desk",
+                    done: isMoreInfoRequired || appData.status === "Submitted" || appData.status === "Under Review" || appData.status === "Merit Qualified" || appData.status === "Admitted",
+                    warning: isMoreInfoRequired,
+                  },
                   { title: "Departmental Merit Qualification", desc: "Calculated against BISE / HEC merit thresholds", done: appData.status === "Merit Qualified" || appData.status === "Admitted" },
                   { title: "Bank Fee Voucher Generated", desc: "Pay official fee voucher at designated bank branch", done: appData.status === "Admitted" },
                   { title: "Official Enrollment & Student ID", desc: "Welcome to Superior Colleges Kanganpur Campus!", done: appData.status === "Admitted" },
@@ -1961,8 +2405,13 @@ function ApplicantDashboardContent() {
                     className="portal-fade-up flex items-start gap-4"
                     style={{ animationDelay: `${idx * 70}ms` }}
                   >
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${item.done ? "bg-primary text-white" : "bg-background-secondary border border-border text-text-muted"
-                      }`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                      item.warning
+                        ? "bg-violet-700 text-white"
+                        : item.done
+                          ? "bg-primary text-white"
+                          : "bg-background-secondary border border-border text-text-muted"
+                    }`}>
                       {item.done ? <Check className="w-4 h-4" /> : idx + 1}
                     </div>
                     <div className="pt-0.5">
@@ -1975,8 +2424,8 @@ function ApplicantDashboardContent() {
                 ))}
               </div>
 
-              {/* Voucher Action Card if submitted */}
-              {appData.status !== "Draft" && (
+              {/* Voucher Action Card if submitted and ready */}
+              {appData.status !== "Draft" && !isMoreInfoRequired && appData.status !== "Rejected" && (
                 <div className="p-6 bg-primary-light/40 border border-primary/30 flex flex-col sm:flex-row items-center justify-between gap-4 mt-6">
                   <div>
                     <h4 className="text-sm font-bold text-primary">Download Admission Fee Voucher</h4>

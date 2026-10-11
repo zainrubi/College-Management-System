@@ -295,6 +295,168 @@ async function runLiveValidation() {
     assert.strictEqual(res.headers["access-control-allow-origin"], "http://localhost:3000");
   });
 
+  // 17. Admin login endpoint validation
+  await check("POST /api/admin/login with missing credentials returns HTTP 400", async () => {
+    const res = await request(
+      { path: "/api/admin/login", method: "POST" },
+      {}
+    );
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.body.success, false);
+  });
+
+  await check("POST /api/admin/login with invalid credentials returns HTTP 401", async () => {
+    const res = await request(
+      { path: "/api/admin/login", method: "POST" },
+      { identifier: "random_hacker", password: "wrong" }
+    );
+    assert.strictEqual(res.statusCode, 401);
+    assert.strictEqual(res.body.success, false);
+  });
+
+  let liveAdminToken = "";
+  await check("POST /api/admin/login with valid admin credentials returns HTTP 200 and admin JWT", async () => {
+    const res = await request(
+      { path: "/api/admin/login", method: "POST" },
+      { identifier: "admin", password: "password123" }
+    );
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.success, true);
+    assert(res.body.token, "Expected token in admin login response");
+    assert.strictEqual(res.body.admin.role, "admin");
+    liveAdminToken = res.body.token;
+  });
+
+  // 18. Genuine admin role authorization on /api/admin/applications
+  await check("GET /api/admin/applications without token returns HTTP 401", async () => {
+    const res = await request({
+      path: "/api/admin/applications",
+      method: "GET",
+    });
+    assert.strictEqual(res.statusCode, 401);
+  });
+
+  await check("GET /api/admin/applications with applicant token returns HTTP 403 Forbidden", async () => {
+    const applicantToken = signToken({
+      id: "64f100000000000000000001",
+      phone: "03001234567",
+      role: "applicant",
+    });
+    const res = await request({
+      path: "/api/admin/applications",
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${applicantToken}`,
+      },
+    });
+    assert.strictEqual(res.statusCode, 403);
+    assert.strictEqual(res.body.message, "Forbidden: Administrator role required");
+  });
+
+  await check("GET /api/admin/applications with valid admin token returns HTTP 200 and applications array", async () => {
+    const res = await request({
+      path: "/api/admin/applications",
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${liveAdminToken}`,
+      },
+    });
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.success, true);
+    assert(Array.isArray(res.body.applications), "Expected applications array");
+    assert(typeof res.body.total === "number", "Expected total count");
+  });
+
+  await check("GET /api/admin/applications/nonexistent-id with admin token returns HTTP 404", async () => {
+    const res = await request({
+      path: "/api/admin/applications/APP-NONEXISTENT-9999",
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${liveAdminToken}`,
+      },
+    });
+    assert.strictEqual(res.statusCode, 404);
+    assert.strictEqual(res.body.message, "Application not found");
+  });
+
+  await check("PATCH /api/admin/applications/APP-TEST/status with applicant token returns HTTP 403 Forbidden", async () => {
+    const applicantToken = signToken({
+      id: "64f100000000000000000001",
+      phone: "03001234567",
+      role: "applicant",
+    });
+    const res = await request(
+      {
+        path: "/api/admin/applications/APP-TEST/status",
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${applicantToken}`,
+        },
+      },
+      { status: "Accepted" }
+    );
+    assert.strictEqual(res.statusCode, 403);
+    assert.strictEqual(res.body.message, "Forbidden: Administrator role required");
+  });
+
+  await check("PATCH /api/admin/applications/APP-TEST/status with invalid status returns HTTP 400", async () => {
+    const res = await request(
+      {
+        path: "/api/admin/applications/APP-TEST/status",
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${liveAdminToken}`,
+        },
+      },
+      { status: "InventedStatus" }
+    );
+    assert.strictEqual(res.statusCode, 400);
+    assert(res.body.message.includes("Invalid status"));
+  });
+
+  // ── Phase 5: Resubmission Live Endpoints ──────────────────────────────
+  await check("POST /api/applications/resubmit without Bearer token returns HTTP 401", async () => {
+    const res = await request(
+      {
+        path: "/api/applications/resubmit",
+        method: "POST",
+      },
+      { resubmissionNote: "Testing auth" }
+    );
+    assert.strictEqual(res.statusCode, 401);
+  });
+
+  await check("PUT /api/applications/resubmit without Bearer token returns HTTP 401", async () => {
+    const res = await request(
+      {
+        path: "/api/applications/resubmit",
+        method: "PUT",
+      },
+      { resubmissionNote: "Testing auth" }
+    );
+    assert.strictEqual(res.statusCode, 401);
+  });
+
+  await check("POST /api/applications/resubmit with malformed JSON body returns HTTP 400", async () => {
+    const applicantToken = signToken({
+      id: "64f100000000000000000002",
+      phone: "03009998877",
+      role: "applicant",
+    });
+    const res = await request(
+      {
+        path: "/api/applications/resubmit",
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${applicantToken}`,
+          "Content-Type": "application/json",
+        },
+      },
+      "not valid json {"
+    );
+    assert.strictEqual(res.statusCode, 400);
+  });
+
   console.log("\n═════════════════════════════════════════════════════════════");
   console.log(`Live Validation Results: ${passed}/${total} passed (${total - passed} failed)`);
   console.log("═════════════════════════════════════════════════════════════\n");
