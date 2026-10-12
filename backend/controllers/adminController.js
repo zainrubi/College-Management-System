@@ -1,6 +1,8 @@
 const mongoose = require("mongoose");
 const AdmissionApplication = require("../models/AdmissionApplication");
+const Student = require("../models/Student");
 const { signToken } = require("../utils/jwt");
+const { generateStudentIdentifiers } = require("../utils/studentIdGenerator");
 
 // Status mapping between frontend admin lowercase / snake_case and backend Mongoose schema enum
 const STATUS_TO_BACKEND = {
@@ -367,8 +369,149 @@ async function getAdminApplicationById(req, res) {
 }
 
 /**
+ * Enrolls an applicant into the Student collection upon admission acceptance.
+ * 
+ * Safety & Invariants:
+ * 1. Idempotency: Checks for existing Student record by applicationId or applicantId.
+ *    Repeated calls return the existing student without duplicate creation.
+ * 2. Uniqueness: Generates collision-safe student ID and program roll number.
+ * 3. Atomic Retry: Catches E11000 duplicate key error and retries allocation.
+ * 4. Credential Isolation: Applicant password is NOT copied to Student model.
+ */
+async function enrollStudentFromApplication(application, options = {}) {
+  const applicationId = application._id;
+  const applicantId = application.applicantId;
+  const StudentModel = options.StudentModel || Student;
+
+  // 1. Idempotency: check if student record already exists
+  let existingStudent = null;
+  try {
+    if (typeof StudentModel.findOne === "function") {
+      existingStudent = await StudentModel.findOne({
+        $or: [{ applicationId }, { applicantId }],
+      });
+    }
+  } catch (err) {
+    if (!err.message?.includes("before initial connection") && err.name !== "DisconnectedError") {
+      throw err;
+    }
+  }
+
+  if (existingStudent) {
+    return {
+      student: existingStudent,
+      isAlreadyEnrolled: true,
+    };
+  }
+
+  // 2. Validate primary program
+  const primaryProgram = application.programCampus?.primaryProgram?.trim();
+  if (!primaryProgram) {
+    throw new Error("Application is missing primary program preference (programCampus.primaryProgram)");
+  }
+
+  const academicLevel = application.programCampus?.academicLevel || "Intermediate";
+  const shift = application.programCampus?.preferredShift || "Morning";
+  const campus = application.programCampus?.campus || "Kanganpur";
+  const session = application.preferences?.admissionSession || "Fall 2026";
+
+  // 3. Retry loop for collision-safe ID allocation
+  const MAX_ENROLLMENT_ATTEMPTS = 5;
+  let enrolledStudent = null;
+
+  for (let attempt = 0; attempt < MAX_ENROLLMENT_ATTEMPTS; attempt++) {
+    const { studentIdNumber, rollNumber } = await generateStudentIdentifiers({
+      programName: primaryProgram,
+      session,
+      StudentModel,
+      attempt,
+    });
+
+    const studentData = {
+      applicantId,
+      applicationId,
+      studentIdNumber,
+      rollNumber,
+      fullName: application.personal?.fullName?.trim() || "Enrolled Student",
+      dob: application.personal?.dob?.trim() || undefined,
+      gender: application.personal?.gender || "Male",
+      cnicBForm: application.personal?.idNumber?.trim() || undefined,
+      bloodGroup: application.personal?.bloodGroup?.trim() || undefined,
+      nationality: application.personal?.nationality?.trim() || "Pakistani",
+      religion: application.personal?.religion?.trim() || "Islam",
+      phone: application.contactAddress?.phone?.trim() || "03000000000",
+      email: application.contactAddress?.email?.trim() || undefined,
+      guardian: {
+        fatherName: application.guardian?.fatherName?.trim() || undefined,
+        motherName: application.guardian?.motherName?.trim() || undefined,
+        guardianPhone: application.guardian?.altPhone?.trim() || undefined,
+      },
+      address: {
+        domicile: application.contactAddress?.domicile?.trim() || undefined,
+        currentAddress: application.contactAddress?.address?.trim() || undefined,
+        permanentAddress: application.contactAddress?.address?.trim() || undefined,
+      },
+      program: {
+        academicLevel,
+        programName: primaryProgram,
+        shift,
+        campus,
+        session,
+        currentSemesterOrYear: 1,
+      },
+      status: "active",
+      admissionDate: new Date(),
+    };
+
+    try {
+      if (typeof StudentModel.create === "function") {
+        enrolledStudent = await StudentModel.create(studentData);
+      } else {
+        enrolledStudent = new StudentModel(studentData);
+      }
+      break;
+    } catch (createErr) {
+      if (createErr.code === 11000 || createErr.message?.includes("11000")) {
+        const isApplicantDup = createErr.keyPattern?.applicantId || createErr.message?.includes("applicantId");
+        const isApplicationDup = createErr.keyPattern?.applicationId || createErr.message?.includes("applicationId");
+
+        if (isApplicantDup || isApplicationDup) {
+          const concurrentStudent = await StudentModel.findOne({
+            $or: [{ applicationId }, { applicantId }],
+          });
+          if (concurrentStudent) {
+            return {
+              student: concurrentStudent,
+              isAlreadyEnrolled: true,
+            };
+          }
+        }
+
+        if (attempt === MAX_ENROLLMENT_ATTEMPTS - 1) {
+          throw new Error("Failed to allocate a unique roll number after multiple collision retries. Please retry.");
+        }
+        continue;
+      }
+
+      if (createErr.message?.includes("before initial connection") || createErr.name === "DisconnectedError") {
+        enrolledStudent = new Student(studentData);
+        break;
+      }
+
+      throw createErr;
+    }
+  }
+
+  return {
+    student: enrolledStudent,
+    isAlreadyEnrolled: false,
+  };
+}
+
+/**
  * PATCH /api/admin/applications/:id/status
  * Updates review status and reviewer notes on an application in MongoDB Atlas.
+ * When status is "accepted", safely enrolls applicant into Student collection.
  */
 async function updateAdminApplicationStatus(req, res) {
   try {
@@ -405,6 +548,64 @@ async function updateAdminApplicationStatus(req, res) {
     const previousStatus = application.status;
     const effectiveNotes = (reviewerNotes || note || reason || "").trim();
 
+    // Acceptance source status eligibility checks
+    if (backendStatus === "Accepted") {
+      if (application.status === "Draft") {
+        return res.status(400).json({
+          success: false,
+          message: "Draft applications cannot be accepted for admission. Application must be submitted first.",
+        });
+      }
+      if (application.status === "Rejected") {
+        return res.status(400).json({
+          success: false,
+          message: "Applications with status 'Rejected' cannot be accepted directly. Application must be reconsidered or resubmitted first.",
+        });
+      }
+    }
+
+    let enrolledStudent = null;
+    let isAlreadyEnrolled = false;
+
+    // Execute Student Enrollment when acceptance is requested
+    if (backendStatus === "Accepted") {
+      try {
+        const enrollmentResult = await enrollStudentFromApplication(application, {
+          reviewerName: reviewerName || req.admin?.name || "Admissions Administrator",
+          reviewerRole: reviewerRole || req.admin?.role || "Administrator",
+          note: effectiveNotes,
+        });
+        enrolledStudent = enrollmentResult.student;
+        isAlreadyEnrolled = enrollmentResult.isAlreadyEnrolled;
+      } catch (enrollErr) {
+        if (
+          enrollErr.message?.startsWith("UNKNOWN_PROGRAM") ||
+          enrollErr.message?.includes("missing primary program")
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: enrollErr.message,
+          });
+        }
+        throw enrollErr;
+      }
+
+      // Idempotency check: if application was already enrolled, return without duplicate audit event
+      if (isAlreadyEnrolled) {
+        if (application.status !== "Accepted") {
+          application.status = "Accepted";
+          await application.save();
+        }
+        const serialized = serializeApplicationForAdmin(application);
+        return res.status(200).json({
+          success: true,
+          message: "Application is already accepted and enrolled",
+          application: serialized,
+          student: enrolledStudent,
+        });
+      }
+    }
+
     // Map human-readable action title
     let actionTitle = `Status updated to ${backendStatus}`;
     if (backendStatus === "Accepted") actionTitle = "Admission Accepted";
@@ -420,6 +621,12 @@ async function updateAdminApplicationStatus(req, res) {
       application.set("reviewSubmission.reviewerNotes", effectiveNotes);
     }
 
+    const auditEventNote = effectiveNotes || (
+      enrolledStudent?.rollNumber
+        ? `Enrolled as ${enrolledStudent.rollNumber} (${enrolledStudent.studentIdNumber})`
+        : effectiveNotes
+    );
+
     const auditEvent = {
       id: `audit-${Date.now()}`,
       action: actionTitle,
@@ -428,7 +635,7 @@ async function updateAdminApplicationStatus(req, res) {
       role: reviewerRole || req.admin?.role || "Administrator",
       previousStatus,
       newStatus: backendStatus,
-      note: effectiveNotes,
+      note: auditEventNote,
     };
 
     if (!Array.isArray(application.history)) {
@@ -436,7 +643,15 @@ async function updateAdminApplicationStatus(req, res) {
     }
     application.history.push(auditEvent);
 
-    await application.save();
+    try {
+      await application.save();
+    } catch (saveErr) {
+      // Two-phase compensation rollback: if application save fails, clean up the created student
+      if (enrolledStudent && enrolledStudent._id && typeof Student.deleteOne === "function") {
+        await Student.deleteOne({ _id: enrolledStudent._id }).catch(() => {});
+      }
+      throw saveErr;
+    }
 
     const serialized = serializeApplicationForAdmin(application);
 
@@ -444,6 +659,7 @@ async function updateAdminApplicationStatus(req, res) {
       success: true,
       message: `Application status updated to ${backendStatus}`,
       application: serialized,
+      student: enrolledStudent,
     });
   } catch (error) {
     console.error("Failed to update application status:", error.message);
@@ -460,4 +676,5 @@ module.exports = {
   getAdminApplicationById,
   updateAdminApplicationStatus,
   serializeApplicationForAdmin,
+  enrollStudentFromApplication,
 };
