@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --check server.js && node --check config/db.js && node --check models/Applicant.js && node --check models/AdmissionApplication.js && node --check models/Student.js && node --check controllers/applicantController.js && node --check controllers/admissionApplicationController.js && node --check controllers/adminController.js && node --check controllers/studentController.js && node --check routes/applicantRoutes.js && node --check routes/admissionApplicationRoutes.js && node --check routes/adminRoutes.js && node --check routes/studentRoutes.js && node --check middleware/authMiddleware.js && node --check utils/jwt.js && node --check utils/studentIdGenerator.js && node tests/auth.test.js && node tests/application_submission.test.js && node tests/admin_applications.test.js && node tests/application_resubmission.test.js && node tests/student_model.test.js && node tests/student_id_generator.test.js && node tests/student_enrollment.test.js && node tests/student_auth.test.js && node tests/student_activation.test.js && node tests/student_frontend_integration.test.js",
+    "test": "node --check server.js && node --check config/db.js && node --check models/Applicant.js && node --check models/AdmissionApplication.js && node --check models/Student.js && node --check controllers/applicantController.js && node --check controllers/admissionApplicationController.js && node --check controllers/adminController.js && node --check controllers/studentController.js && node --check routes/applicantRoutes.js && node --check routes/admissionApplicationRoutes.js && node --check routes/adminRoutes.js && node --check routes/studentRoutes.js && node --check middleware/authMiddleware.js && node --check middleware/rateLimitMiddleware.js && node --check utils/jwt.js && node --check utils/studentIdGenerator.js && node tests/auth.test.js && node tests/application_submission.test.js && node tests/admin_applications.test.js && node tests/application_resubmission.test.js && node tests/student_model.test.js && node tests/student_id_generator.test.js && node tests/student_enrollment.test.js && node tests/student_auth.test.js && node tests/student_activation.test.js && node tests/student_frontend_integration.test.js && node tests/student_rate_limit.test.js",
     "test:live": "node tests/live_server_validation.js"
   },
   "keywords": [],
@@ -17,6 +17,7 @@
     "cors": "^2.8.6",
     "dotenv": "^18.0.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.1",
     "mongoose": "^9.10.2"
   }
 }

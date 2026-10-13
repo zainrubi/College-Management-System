@@ -6,17 +6,22 @@ const {
   activateStudentAccount,
 } = require("../controllers/studentController");
 const { protectStudent } = require("../middleware/authMiddleware");
+const {
+  studentLoginLimiter,
+  studentActivationRequestLimiter,
+  studentActivateLimiter,
+} = require("../middleware/rateLimitMiddleware");
 
 const router = express.Router();
 
-// Student Account Activation
-router.post("/request-activation", requestStudentActivation);
-router.post("/initiate-activation", requestStudentActivation);
-router.post("/activate", activateStudentAccount);
-router.post("/set-password", activateStudentAccount);
+// Student Account Activation (Rate-limited)
+router.post("/request-activation", studentActivationRequestLimiter, requestStudentActivation);
+router.post("/initiate-activation", studentActivationRequestLimiter, requestStudentActivation);
+router.post("/activate", studentActivateLimiter, activateStudentAccount);
+router.post("/set-password", studentActivateLimiter, activateStudentAccount);
 
-// Student Authentication
-router.post("/login", loginStudent);
+// Student Authentication (Rate-limited)
+router.post("/login", studentLoginLimiter, loginStudent);
 
 // Student Protected Profile Routes
 router.get("/profile", protectStudent, getStudentProfile);

@@ -179,7 +179,10 @@ export async function loginStudent(
     err.status = response.status;
     err.code = data.code || (response.status === 401 ? "INVALID_CREDENTIALS" : undefined);
 
-    if (data.code === "ACCOUNT_NOT_ACTIVATED" || (response.status === 401 && data.message?.toLowerCase().includes("not been activated"))) {
+    if (response.status === 429 || data.code === "TOO_MANY_REQUESTS") {
+      err.code = "TOO_MANY_REQUESTS";
+      err.message = data.message || "Too many login attempts from this IP address. Please try again after 15 minutes.";
+    } else if (data.code === "ACCOUNT_NOT_ACTIVATED" || (response.status === 401 && data.message?.toLowerCase().includes("not been activated"))) {
       err.code = "ACCOUNT_NOT_ACTIVATED";
       err.message = data.message || "Student account has not been activated. Please complete initial password setup before logging in.";
     } else if (response.status === 401) {
@@ -406,7 +409,10 @@ export async function requestStudentActivation(
     err.status = response.status;
     err.code = data.code;
 
-    if (data.code === "ALREADY_ACTIVATED") {
+    if (response.status === 429 || data.code === "TOO_MANY_REQUESTS") {
+      err.code = "TOO_MANY_REQUESTS";
+      err.message = data.message || "Too many activation requests from this IP address. Please try again after 15 minutes.";
+    } else if (data.code === "ALREADY_ACTIVATED") {
       err.code = "ALREADY_ACTIVATED";
       err.message = data.message || "Student account is already activated. Please sign in directly.";
     } else if (response.status === 404) {
@@ -500,7 +506,10 @@ export async function activateStudentAccount(
     err.status = response.status;
     err.code = data.code;
 
-    if (data.code === "ALREADY_ACTIVATED") {
+    if (response.status === 429 || data.code === "TOO_MANY_REQUESTS") {
+      err.code = "TOO_MANY_REQUESTS";
+      err.message = data.message || "Too many password setup attempts from this IP address. Please try again after 15 minutes.";
+    } else if (data.code === "ALREADY_ACTIVATED") {
       err.code = "ALREADY_ACTIVATED";
       err.message = data.message || "Student account is already activated. Please sign in directly.";
     } else if (response.status >= 500) {
