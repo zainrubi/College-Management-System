@@ -80,8 +80,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const parsed = JSON.parse(stored) as User;
         const storedApplicantToken = localStorage.getItem("cms_applicant_jwt_token");
         const storedAdminToken = localStorage.getItem("cms_admin_jwt_token");
+        const storedStudentToken = localStorage.getItem("cms_student_jwt_token");
         if (parsed.role === "admin" && storedAdminToken && !parsed.token) {
           parsed.token = storedAdminToken;
+        } else if (parsed.role === "student" && storedStudentToken && !parsed.token) {
+          parsed.token = storedStudentToken;
         } else if (storedApplicantToken && !parsed.token) {
           parsed.token = storedApplicantToken;
         }
@@ -110,6 +113,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (customUser?.token) {
         if (role === "admin") {
           localStorage.setItem("cms_admin_jwt_token", customUser.token);
+        } else if (role === "student") {
+          localStorage.setItem("cms_student_jwt_token", customUser.token);
         } else {
           localStorage.setItem("cms_applicant_jwt_token", customUser.token);
         }
@@ -125,6 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem("cms_applicant_jwt_token");
       localStorage.removeItem("cms_admin_jwt_token");
+      localStorage.removeItem("cms_student_jwt_token");
     } catch {
       // Ignore localStorage errors
     }

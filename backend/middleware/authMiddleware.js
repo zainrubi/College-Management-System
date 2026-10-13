@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Applicant = require("../models/Applicant");
+const Student = require("../models/Student");
 const { verifyToken } = require("../utils/jwt");
 
 /**
@@ -132,11 +133,102 @@ async function protectAdmin(req, res, next) {
     }
 }
 
+/**
+ * Authentication and authorization middleware strictly for enrolled students.
+ * Strictly verifies the signed JWT token and requires decoded.role === "student".
+ * Verifies the student exists and has an active account.
+ * Rejects applicants, admins, suspended accounts, or expired/forged tokens.
+ */
+async function protectStudent(req, res, next) {
+    try {
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader || typeof authHeader !== "string") {
+            return res.status(401).json({ message: "Authentication required: missing token" });
+        }
+
+        let token = null;
+        if (authHeader.startsWith("Bearer ")) {
+            token = authHeader.slice(7).trim();
+        } else {
+            token = authHeader.trim();
+        }
+
+        if (!token) {
+            return res.status(401).json({ message: "Authentication required: missing token" });
+        }
+
+        // Verify cryptographic JWT signature, structure, and expiration
+        let decoded;
+        try {
+            decoded = verifyToken(token);
+        } catch (err) {
+            if (err.name === "TokenExpiredError") {
+                return res.status(401).json({ message: "Authentication required: token has expired" });
+            }
+            return res.status(401).json({ message: "Authentication required: invalid or forged token" });
+        }
+
+        // Enforce student role
+        if (!decoded || decoded.role !== "student") {
+            return res.status(403).json({
+                message: "Forbidden: Student role required",
+            });
+        }
+
+        const studentId = decoded?.id || decoded?._id || decoded?.sub;
+        if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) {
+            return res.status(401).json({ message: "Authentication required: invalid token payload" });
+        }
+
+        // Explicitly check for ID spoofing attempts via headers
+        const spoofedHeaderId = req.headers["x-student-id"];
+        if (spoofedHeaderId && String(spoofedHeaderId).trim() !== String(studentId)) {
+            return res.status(403).json({
+                message: "Forbidden: request header ID does not match authenticated token",
+            });
+        }
+
+        // Verify student exists in database
+        let student = null;
+        if (typeof Student.findById === "function") {
+            student = await Student.findById(studentId);
+        }
+
+        if (!student) {
+            return res.status(401).json({ message: "Authentication required: student not found" });
+        }
+
+        // Check student account status
+        if (student.status !== "active") {
+            return res.status(403).json({
+                message: `Forbidden: Student account is ${student.status}`,
+            });
+        }
+
+        // Attach verified student document to request
+        req.user = student;
+        req.student = student;
+        return next();
+    } catch (error) {
+        if (error.message?.includes("JWT_SECRET")) {
+            console.error("Student auth middleware error: JWT_SECRET missing in backend environment");
+            return res.status(500).json({ message: "Server authentication configuration error" });
+        }
+
+        console.error("Student auth middleware error:", error.message);
+        return res.status(500).json({ message: "Authentication error" });
+    }
+}
+
 protect.protect = protect;
 protect.protectAdmin = protectAdmin;
+protect.protectStudent = protectStudent;
 protect.authMiddleware = protect;
 
 module.exports = protect;
 module.exports.protect = protect;
 module.exports.protectAdmin = protectAdmin;
+module.exports.protectStudent = protectStudent;
+
 

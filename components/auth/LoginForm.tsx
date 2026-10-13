@@ -12,6 +12,8 @@ import { BackToHome } from "../ui/BackToHome";
 import { MOCK_COLLEGE } from "@/lib/mock-data";
 import { loginApplicant, getApplicantPortalDestination } from "@/lib/services/admission-service";
 import { loginAdmin } from "@/lib/services/admin-admissions-service";
+import { loginStudent } from "@/lib/services/student-service";
+import { cn } from "@/lib/utils";
 import {
   GraduationCap,
   Lock,
@@ -23,6 +25,7 @@ import {
   Eye,
   EyeOff,
   Sparkles,
+  KeyRound,
 } from "lucide-react";
 
 export interface LoginFormProps {
@@ -52,6 +55,7 @@ export function LoginForm({
   const [rememberMe, setRememberMe] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [isAccountNotActivated, setIsAccountNotActivated] = useState(false);
 
   const isApplicant = role === "applicant" || role === "public_visitor";
 
@@ -61,14 +65,14 @@ export function LoginForm({
         return {
           defaultTitle: "Student Portal Sign In",
           defaultSubtitle:
-            "Enter your Student Registration ID or college email to access your student dashboard.",
-          identifierLabel: "Student ID or Institutional Email",
-          identifierPlaceholder: "e.g. BCS-F24-014 or ali@student.apex.edu.pk",
+            "Enter your Student Registration ID, Roll Number, or institutional email to access your student dashboard.",
+          identifierLabel: "Student ID, Roll Number, Email, or Phone",
+          identifierPlaceholder: "e.g. BCS-F26-001 or 2026-F-CS-0001",
           inputType: "text",
           icon: <GraduationCap className="w-6 h-6 text-primary" />,
           fieldIcon: <Mail className="w-4 h-4" />,
           targetRoute: "/student",
-          demoCreds: "Demo Student ID: BCS-F24-014 | Pass: any",
+          demoCreds: "Enrolled students: sign in with your Roll Number / Student ID and password.",
           helperNote: undefined,
         };
       case "teacher":
@@ -122,6 +126,7 @@ export function LoginForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
+    setIsAccountNotActivated(false);
 
     if (!identifier.trim()) {
       setErrorMsg(isApplicant ? "Mobile number must contain exactly 11 digits." : "Please enter your ID or Email.");
@@ -202,6 +207,53 @@ export function LoginForm({
       return;
     }
 
+    if (role === "student") {
+      loginStudent(identifier, password)
+        .then((result) => {
+          login("student", {
+            id: result.student.id,
+            token: result.token,
+            name: result.student.fullName,
+            email: result.student.email,
+            phone: result.student.phone,
+            rollNumber: result.student.rollNumber,
+            studentIdNumber: result.student.studentIdNumber,
+            programName: result.student.program?.name,
+          });
+          router.push(redirectUrl || config.targetRoute);
+        })
+        .catch((err: unknown) => {
+          const studentErr = err as { code?: string; message?: string };
+          if (studentErr.code === "ACCOUNT_NOT_ACTIVATED") {
+            setIsAccountNotActivated(true);
+            setErrorMsg(
+              studentErr.message ||
+                "Student account has not been activated. Please complete initial password setup before logging in."
+            );
+          } else if (studentErr.code === "INVALID_CREDENTIALS") {
+            setErrorMsg(
+              "Invalid Student ID, Roll Number, or password. Please verify your credentials."
+            );
+          } else if (studentErr.code === "ACCOUNT_SUSPENDED") {
+            setErrorMsg(
+              studentErr.message || "Student account is suspended. Login not permitted."
+            );
+          } else if (studentErr.code === "NETWORK_ERROR") {
+            setErrorMsg(
+              "Unable to connect to college server. Please check your network connection and try again."
+            );
+          } else if (studentErr.code === "SERVER_ERROR") {
+            setErrorMsg(
+              "College authentication service is temporarily unavailable. Please try again later."
+            );
+          } else {
+            setErrorMsg(studentErr.message || "Failed to sign in. Please verify your credentials.");
+          }
+        })
+        .finally(() => setIsSubmitting(false));
+      return;
+    }
+
     setTimeout(() => {
       login(role, {
         email: identifier.includes("@") ? identifier : `${identifier}@apex.edu.pk`,
@@ -238,8 +290,36 @@ export function LoginForm({
 
           {/* Error Banner */}
           {errorMsg && (
-            <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-lg">
-              {errorMsg}
+            <div
+              className={cn(
+                "p-3.5 border text-xs font-semibold rounded-lg",
+                isAccountNotActivated
+                  ? "bg-amber-50 border-amber-300 text-amber-900"
+                  : "bg-rose-50 border-rose-200 text-rose-700"
+              )}
+            >
+              <div className="flex items-start gap-2.5">
+                {isAccountNotActivated ? (
+                  <KeyRound className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                ) : null}
+                <div className="space-y-2 flex-1">
+                  <p className="leading-relaxed">{errorMsg}</p>
+                  {isAccountNotActivated && (
+                    <div className="pt-2 border-t border-amber-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <span className="text-[11px] font-normal text-amber-800">
+                        First time logging in as an admitted student?
+                      </span>
+                      <Link
+                        href={`/student/activate?identifier=${encodeURIComponent(identifier.trim())}`}
+                        className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-amber-950 bg-amber-200 hover:bg-amber-300 px-3 py-1.5 rounded-md transition-colors shadow-xs"
+                      >
+                        <span>Activate Account Now</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -343,6 +423,28 @@ export function LoginForm({
                     Create an account
                   </Button>
                 </Link>
+              </div>
+            ) : role === "student" ? (
+              <div className="space-y-2.5">
+                <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200/70 text-center space-y-1.5">
+                  <p className="text-xs text-blue-900 font-medium">
+                    Admitted student setting up for the first time?
+                  </p>
+                  <Link
+                    href={
+                      identifier.trim()
+                        ? `/student/activate?identifier=${encodeURIComponent(identifier.trim())}`
+                        : "/student/activate"
+                    }
+                    className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-primary hover:underline"
+                  >
+                    <span>Activate student account & set password</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Notice: Student accounts are issued to enrolled applicants. Use activation to set your first password.
+                </p>
               </div>
             ) : (
               <p className="text-[11px] text-slate-400 leading-relaxed">

@@ -8,6 +8,7 @@ const connectDB = require("./config/db");
 const applicantRoutes = require("./routes/applicantRoutes");
 const admissionApplicationRoutes = require("./routes/admissionApplicationRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const studentRoutes = require("./routes/studentRoutes");
 
 const app = express();
 
@@ -42,13 +43,14 @@ app.use(cors({
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-applicant-id"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-applicant-id", "x-student-id"],
 }));
 app.use(express.json());
 app.use("/api/applicants", applicantRoutes);
 app.use("/api/applications", admissionApplicationRoutes);
 app.use("/api/admission-applications", admissionApplicationRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/students", studentRoutes);
 
 app.get("/", (req, res) => {
   res.send("College website backend is running!");

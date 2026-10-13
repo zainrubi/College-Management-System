@@ -13,6 +13,9 @@ export interface User {
   role: UserRole;
   phone?: string;
   token?: string;
+  rollNumber?: string;
+  studentIdNumber?: string;
+  programName?: string;
   createdAt: string;
 }
 

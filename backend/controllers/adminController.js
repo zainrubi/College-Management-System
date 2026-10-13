@@ -472,8 +472,8 @@ async function enrollStudentFromApplication(application, options = {}) {
       break;
     } catch (createErr) {
       if (createErr.code === 11000 || createErr.message?.includes("11000")) {
-        const isApplicantDup = createErr.keyPattern?.applicantId || createErr.message?.includes("applicantId");
-        const isApplicationDup = createErr.keyPattern?.applicationId || createErr.message?.includes("applicationId");
+        const isApplicantDup = Boolean(createErr.keyPattern?.applicantId || createErr.message?.includes("applicantId"));
+        const isApplicationDup = Boolean(createErr.keyPattern?.applicationId || createErr.message?.includes("applicationId"));
 
         if (isApplicantDup || isApplicationDup) {
           const concurrentStudent = await StudentModel.findOne({
@@ -485,16 +485,34 @@ async function enrollStudentFromApplication(application, options = {}) {
               isAlreadyEnrolled: true,
             };
           }
+          throw new Error("Applicant or application is already associated with an enrolled student record.");
         }
 
-        if (attempt === MAX_ENROLLMENT_ATTEMPTS - 1) {
-          throw new Error("Failed to allocate a unique roll number after multiple collision retries. Please retry.");
+        const isEmailDup = Boolean(createErr.keyPattern?.email || createErr.message?.includes("email"));
+        if (isEmailDup) {
+          const emailVal = studentData.email || "provided email";
+          throw new Error(`Email address '${emailVal}' is already registered to another enrolled student.`);
         }
-        continue;
+
+        const isIdCollision = Boolean(
+          createErr.keyPattern?.rollNumber ||
+          createErr.keyPattern?.studentIdNumber ||
+          createErr.message?.includes("rollNumber") ||
+          createErr.message?.includes("studentIdNumber")
+        );
+
+        if (isIdCollision) {
+          if (attempt === MAX_ENROLLMENT_ATTEMPTS - 1) {
+            throw new Error("Failed to allocate a unique roll number after multiple collision retries. Please retry.");
+          }
+          continue;
+        }
+
+        throw new Error(`Enrollment constraint violation: ${createErr.message}`);
       }
 
       if (createErr.message?.includes("before initial connection") || createErr.name === "DisconnectedError") {
-        enrolledStudent = new Student(studentData);
+        enrolledStudent = new StudentModel(studentData);
         break;
       }
 
@@ -564,6 +582,30 @@ async function updateAdminApplicationStatus(req, res) {
       }
     }
 
+    // Prevent already accepted or enrolled applications from being modified to non-Accepted statuses
+    if (application.status === "Accepted" && backendStatus !== "Accepted") {
+      return res.status(400).json({
+        success: false,
+        message: `Application is already accepted and enrolled. Cannot change status to '${backendStatus}'. Status updates must be managed through Student Management.`,
+      });
+    }
+
+    if (backendStatus !== "Accepted" && typeof Student.findOne === "function") {
+      try {
+        const existingStudentDoc = await Student.findOne({ applicationId: application._id });
+        if (existingStudentDoc) {
+          return res.status(400).json({
+            success: false,
+            message: `Application has an active enrolled student (${existingStudentDoc.studentIdNumber || existingStudentDoc.rollNumber}). Cannot change status to '${backendStatus}'.`,
+          });
+        }
+      } catch (err) {
+        if (!err.message?.includes("before initial connection") && err.name !== "DisconnectedError") {
+          throw err;
+        }
+      }
+    }
+
     let enrolledStudent = null;
     let isAlreadyEnrolled = false;
 
@@ -580,7 +622,10 @@ async function updateAdminApplicationStatus(req, res) {
       } catch (enrollErr) {
         if (
           enrollErr.message?.startsWith("UNKNOWN_PROGRAM") ||
-          enrollErr.message?.includes("missing primary program")
+          enrollErr.message?.includes("missing primary program") ||
+          enrollErr.message?.includes("already registered to another enrolled student") ||
+          enrollErr.message?.includes("already associated with an enrolled student") ||
+          enrollErr.message?.startsWith("Enrollment constraint violation")
         ) {
           return res.status(400).json({
             success: false,
@@ -593,10 +638,32 @@ async function updateAdminApplicationStatus(req, res) {
       // Idempotency check: if application was already enrolled, return without duplicate audit event
       if (isAlreadyEnrolled) {
         if (application.status !== "Accepted") {
+          if (typeof AdmissionApplication.updateOne === "function") {
+            try {
+              await AdmissionApplication.updateOne(
+                { _id: application._id, status: { $ne: "Accepted" } },
+                { $set: { status: "Accepted" } }
+              );
+            } catch (err) {
+              if (!err.message?.includes("before initial connection") && err.name !== "DisconnectedError") {
+                throw err;
+              }
+            }
+          }
           application.status = "Accepted";
-          await application.save();
         }
-        const serialized = serializeApplicationForAdmin(application);
+
+        let appToSerialize = application;
+        if (typeof AdmissionApplication.findById === "function") {
+          try {
+            const reloaded = await AdmissionApplication.findById(application._id);
+            if (reloaded) appToSerialize = reloaded;
+          } catch (err) {
+            // fallback to in-memory application
+          }
+        }
+
+        const serialized = serializeApplicationForAdmin(appToSerialize);
         return res.status(200).json({
           success: true,
           message: "Application is already accepted and enrolled",
@@ -647,8 +714,31 @@ async function updateAdminApplicationStatus(req, res) {
       await application.save();
     } catch (saveErr) {
       // Two-phase compensation rollback: if application save fails, clean up the created student
+      let rollbackError = null;
       if (enrolledStudent && enrolledStudent._id && typeof Student.deleteOne === "function") {
-        await Student.deleteOne({ _id: enrolledStudent._id }).catch(() => {});
+        try {
+          await Student.deleteOne({ _id: enrolledStudent._id });
+        } catch (delErr) {
+          rollbackError = delErr;
+          console.error(
+            JSON.stringify({
+              level: "CRITICAL",
+              event: "ENROLLMENT_COMPENSATION_ROLLBACK_FAILED",
+              message: "Failed to delete student record after application save failure. Orphan student record exists.",
+              studentId: enrolledStudent._id,
+              studentIdNumber: enrolledStudent.studentIdNumber,
+              rollNumber: enrolledStudent.rollNumber,
+              applicationId: application._id,
+              error: delErr.message,
+              timestamp: new Date().toISOString(),
+            })
+          );
+        }
+      }
+
+      if (rollbackError) {
+        saveErr.rollbackFailed = true;
+        saveErr.rollbackError = rollbackError;
       }
       throw saveErr;
     }
@@ -665,7 +755,10 @@ async function updateAdminApplicationStatus(req, res) {
     console.error("Failed to update application status:", error.message);
     return res.status(500).json({
       success: false,
-      message: "Server error updating application status",
+      message: error.rollbackFailed
+        ? "Application status update failed and automatic student cleanup failed. Please contact administrator."
+        : "Server error updating application status",
+      ...(error.rollbackFailed ? { rollbackFailed: true } : {}),
     });
   }
 }

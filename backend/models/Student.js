@@ -164,6 +164,22 @@ const studentSchema = new mongoose.Schema(
       minlength: [6, "Password must be at least 6 characters"],
       select: false,
     },
+    isActivated: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    activatedAt: {
+      type: Date,
+    },
+    activationTokenHash: {
+      type: String,
+      select: false,
+    },
+    activationTokenExpires: {
+      type: Date,
+      select: false,
+    },
   },
   { timestamps: true, bufferCommands: false }
 );

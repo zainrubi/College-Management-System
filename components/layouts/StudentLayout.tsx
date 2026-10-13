@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { MobileNav } from "./MobileNav";
@@ -12,18 +13,25 @@ export interface StudentLayoutProps {
   activePath?: string;
   studentName?: string;
   studentRollNumber?: string;
+  studentEmail?: string;
   unpaidVoucherCount?: number;
 }
 
 export function StudentLayout({
   children,
   activePath = "/student",
-  studentName = "Ali Hasan Siddiqui",
-  studentRollNumber = "BCS-F24-014",
-  unpaidVoucherCount = 1,
+  studentName,
+  studentRollNumber,
+  studentEmail,
+  unpaidVoucherCount = 0,
 }: StudentLayoutProps) {
+  const { user } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const displayName = studentName || user?.name || "Student";
+  const displayRollNo = studentRollNumber || user?.rollNumber || user?.studentIdNumber || "";
+  const displayEmail = studentEmail || user?.email || (displayRollNo ? `${displayRollNo.toLowerCase()}@student.apex.edu.pk` : "student@apex.edu.pk");
 
   return (
     <div className="min-h-screen flex bg-background-secondary text-text-primary">
@@ -48,8 +56,8 @@ export function StudentLayout({
       <div className="flex-1 flex flex-col min-w-0">
         <Topbar
           role="student"
-          userName={`${studentName} (${studentRollNumber})`}
-          userEmail="ali.siddiqui@student.apex.edu.pk"
+          userName={displayRollNo ? `${displayName} (${displayRollNo})` : displayName}
+          userEmail={displayEmail}
           onOpenMobileNav={() => setMobileNavOpen(true)}
         />
 

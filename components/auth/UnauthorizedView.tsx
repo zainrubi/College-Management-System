@@ -48,9 +48,18 @@ export function UnauthorizedView({ reason, allowedRoles = [] }: UnauthorizedView
 
         <div className="pt-2 flex flex-col gap-2.5">
           {reason === "unauthenticated" ? (
-            <Link href="/login" className="w-full">
+            <Link
+              href={
+                allowedRoles.length === 1 && allowedRoles[0] === "student"
+                  ? "/student/login"
+                  : "/login"
+              }
+              className="w-full"
+            >
               <Button variant="primary" className="w-full" leftIcon={<LogIn className="w-4 h-4" />}>
-                Go to Sign In
+                {allowedRoles.length === 1 && allowedRoles[0] === "student"
+                  ? "Go to Student Sign In"
+                  : "Go to Sign In"}
               </Button>
             </Link>
           ) : user ? (

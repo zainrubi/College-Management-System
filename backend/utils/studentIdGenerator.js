@@ -1,5 +1,3 @@
-const { randomInt } = require("crypto");
-
 /**
  * Program to Roll Number Prefix mapping.
  * Verified against supported college academic offerings.

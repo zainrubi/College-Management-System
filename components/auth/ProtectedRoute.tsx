@@ -1,6 +1,7 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { UserRole } from "@/types";
 import { UnauthorizedView } from "./UnauthorizedView";
@@ -12,14 +13,24 @@ export interface ProtectedRouteProps {
 }
 
 /**
- * CLIENT-SIDE ROUTE GUARD PROTOTYPE
+ * CLIENT-SIDE ROUTE GUARD
  * 
  * Verifies authentication and role authorization against AuthContext.
- * Note: Server-side authorization check must be implemented in Next.js middleware
- * or server actions after backend session cookies are introduced.
+ * Automatically redirects unauthenticated users visiting student-only pages to /student/login.
  */
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
   const { user, isAuthenticated, isLoading, hasRole } = useAuth();
+  const router = useRouter();
+
+  const isStudentOnly = allowedRoles.length === 1 && allowedRoles[0] === "student";
+
+  useEffect(() => {
+    if (!isLoading && (!isAuthenticated || !user)) {
+      if (isStudentOnly) {
+        router.push("/student/login");
+      }
+    }
+  }, [isLoading, isAuthenticated, user, isStudentOnly, router]);
 
   if (isLoading) {
     return (
@@ -30,6 +41,13 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
   }
 
   if (!isAuthenticated || !user) {
+    if (isStudentOnly) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6 bg-background-secondary">
+          <LoadingState label="Redirecting to Student Sign In..." />
+        </div>
+      );
+    }
     return <UnauthorizedView reason="unauthenticated" allowedRoles={allowedRoles} />;
   }
 
