@@ -751,9 +751,18 @@ export function StudentActivationForm() {
             </div>
           )}
 
-          {/* Security notice footer */}
-          <div className="pt-4 border-t border-slate-100 text-center text-[11px] text-slate-400 space-y-1">
-            <p>
+          {/* Security architecture and production readiness notice */}
+          <div className="pt-4 border-t border-slate-100 text-center text-[11px] text-slate-500 space-y-2">
+            <div className="p-3 bg-amber-50/70 border border-amber-200/60 rounded-xl text-left space-y-1 text-amber-900">
+              <div className="flex items-center gap-1.5 font-bold text-amber-950">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                <span>Security Notice — Development / Staging Mode</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-amber-800">
+                This activation flow is operating in local development mode with in-response token generation. Production readiness requires integrating an out-of-band delivery service (e.g. verified SMS gateway or transactional email service) to dispatch activation links securely.
+              </p>
+            </div>
+            <p className="text-[10px] text-slate-400">
               College security policy: Student passwords must be kept confidential. Never share your credentials.
             </p>
           </div>

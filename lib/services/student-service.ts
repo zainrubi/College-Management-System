@@ -55,6 +55,21 @@ export function setStudentToken(token: string | null): void {
 
 export function removeStudentToken(): void {
   setStudentToken(null);
+  const storage = getStorage();
+  if (!storage) return;
+
+  try {
+    const rawUser = storage.getItem(AUTH_USER_STORAGE_KEY);
+    if (rawUser) {
+      const user = JSON.parse(rawUser);
+      if (user?.role === "student" && user?.token) {
+        delete user.token;
+        storage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
+      }
+    }
+  } catch {
+    // Ignore parse errors
+  }
 }
 
 export interface StudentProgramInfo {

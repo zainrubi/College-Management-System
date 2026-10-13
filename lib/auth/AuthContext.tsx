@@ -85,7 +85,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           parsed.token = storedAdminToken;
         } else if (parsed.role === "student" && storedStudentToken && !parsed.token) {
           parsed.token = storedStudentToken;
-        } else if (storedApplicantToken && !parsed.token) {
+        } else if (
+          (parsed.role === "applicant" || parsed.role === "public_visitor") &&
+          storedApplicantToken &&
+          !parsed.token
+        ) {
           parsed.token = storedApplicantToken;
         }
         setUser(parsed);

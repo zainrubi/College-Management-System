@@ -68,6 +68,7 @@ function createSampleStudent(overrides = {}) {
       currentSemesterOrYear: 1,
     },
     status: overrides.status || "active",
+    isActivated: overrides.isActivated !== undefined ? overrides.isActivated : true,
     admissionDate: new Date("2026-08-15"),
     password: overrides.password, // undefined by default for newly enrolled students
     createdAt: new Date("2026-08-15"),
@@ -368,6 +369,23 @@ async function runStudentAuthTests() {
     assert.strictEqual(res.statusCode, 403);
     assert.strictEqual(nextCalled, false);
     assert.ok(res.body.message.includes("suspended"));
+  });
+
+  await test("protectStudent rejects token when student is not activated (isActivated: false)", async () => {
+    const unactivatedStudent = createSampleStudent({ isActivated: false });
+    const token = signToken({ id: unactivatedStudent._id.toString(), role: "student" });
+
+    Student.findById = async () => unactivatedStudent;
+
+    const req = { headers: { authorization: `Bearer ${token}` } };
+    const res = createMockRes();
+    let nextCalled = false;
+
+    await protectStudent(req, res, () => { nextCalled = true; });
+
+    assert.strictEqual(res.statusCode, 403);
+    assert.strictEqual(nextCalled, false);
+    assert.ok(res.body.message.includes("not been activated"));
   });
 
   await test("protectStudent accepts valid token, populates req.student and calls next()", async () => {

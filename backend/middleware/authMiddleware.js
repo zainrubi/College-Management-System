@@ -199,10 +199,16 @@ async function protectStudent(req, res, next) {
             return res.status(401).json({ message: "Authentication required: student not found" });
         }
 
-        // Check student account status
+        // Check student account status and activation
         if (student.status !== "active") {
             return res.status(403).json({
                 message: `Forbidden: Student account is ${student.status}`,
+            });
+        }
+
+        if (student.isActivated === false) {
+            return res.status(403).json({
+                message: "Forbidden: Student account has not been activated",
             });
         }
 

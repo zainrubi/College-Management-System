@@ -8,7 +8,10 @@ const { signToken, verifyToken } = require("../utils/jwt");
  * for Student records (Student ID, Roll Number, Phone, or Email).
  */
 function buildStudentLookupQuery(identifier) {
-  const trimmed = identifier.trim();
+  if (!identifier || typeof identifier !== "string") {
+    return { _id: null };
+  }
+  const trimmed = identifier.trim().slice(0, 100);
   const upper = trimmed.toUpperCase();
 
   const conditions = [
@@ -39,7 +42,11 @@ function buildStudentLookupQuery(identifier) {
 async function requestStudentActivation(req, res) {
   try {
     const { identifier, studentId, rollNumber, phone, applicantPassword } = req.body || {};
-    const rawIdentifier = (identifier || studentId || rollNumber || "").trim();
+    const rawIdentifier = (
+      typeof identifier === "string" ? identifier :
+      typeof studentId === "string" ? studentId :
+      typeof rollNumber === "string" ? rollNumber : ""
+    ).trim();
 
     if (!rawIdentifier) {
       return res.status(400).json({
@@ -192,7 +199,7 @@ async function activateStudentAccount(req, res) {
       });
     }
 
-    if (confirmPassword && password !== confirmPassword) {
+    if (confirmPassword && (typeof confirmPassword !== "string" || password !== confirmPassword)) {
       return res.status(400).json({
         success: false,
         message: "Passwords do not match",

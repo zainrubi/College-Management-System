@@ -186,6 +186,9 @@ const studentSchema = new mongoose.Schema(
 
 studentSchema.pre("save", async function hashPassword() {
   if (!this.isModified("password") || !this.password) return;
+  if (typeof this.password === "string" && (this.password.startsWith("$2a$") || this.password.startsWith("$2b$"))) {
+    return;
+  }
   this.password = await bcrypt.hash(this.password, 10);
 });
 

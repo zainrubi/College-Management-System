@@ -63,11 +63,20 @@ export function UnauthorizedView({ reason, allowedRoles = [] }: UnauthorizedView
               </Button>
             </Link>
           ) : user ? (
-            <Link href={currentPortalRoute} className="w-full">
-              <Button variant="primary" className="w-full" rightIcon={<ArrowRight className="w-4 h-4" />}>
-                Go to Your Portal ({user.role})
-              </Button>
-            </Link>
+            <>
+              <Link href={currentPortalRoute} className="w-full">
+                <Button variant="primary" className="w-full" rightIcon={<ArrowRight className="w-4 h-4" />}>
+                  Go to Your Portal ({user.role})
+                </Button>
+              </Link>
+              {allowedRoles.includes("student") && user.role !== "student" && (
+                <Link href="/student/login" className="w-full">
+                  <Button variant="outline" className="w-full" leftIcon={<LogIn className="w-4 h-4" />}>
+                    Sign In to Student Portal
+                  </Button>
+                </Link>
+              )}
+            </>
           ) : null}
 
           <div className="pt-2 border-t border-border flex justify-center">
