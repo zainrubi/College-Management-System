@@ -72,41 +72,19 @@ export function removeStudentToken(): void {
   }
 }
 
-export interface StudentProgramInfo {
-  name: string;
-  code?: string;
-  shift?: string;
-  campus?: string;
-}
+import type {
+  StudentProgramInfo,
+  StudentGuardianInfo,
+  StudentAddressInfo,
+  StudentProfileData,
+} from "@/types/people";
 
-export interface StudentProfileData {
-  id: string;
-  applicantId?: string;
-  applicationId?: string;
-  studentIdNumber: string;
-  rollNumber: string;
-  fullName: string;
-  dob?: string;
-  gender?: string;
-  cnicBForm?: string;
-  bloodGroup?: string;
-  nationality?: string;
-  religion?: string;
-  phone?: string;
-  email?: string;
-  guardian?: {
-    name?: string;
-    relation?: string;
-    phone?: string;
-  };
-  address?: string;
-  program?: StudentProgramInfo;
-  status: string;
-  admissionDate?: string;
-  isActivated?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-}
+export type {
+  StudentProgramInfo,
+  StudentGuardianInfo,
+  StudentAddressInfo,
+  StudentProfileData,
+};
 
 export interface StudentLoginResult {
   token: string;
@@ -158,7 +136,7 @@ export async function loginStudent(
         password,
       }),
     });
-  } catch (error) {
+  } catch {
     const err: StudentAuthError = new Error(
       "Unable to connect to college server. Please check your network connection and try again."
     );
@@ -236,7 +214,7 @@ export async function getStudentProfile(
         Authorization: `Bearer ${token}`,
       },
     });
-  } catch (error) {
+  } catch {
     const err: StudentAuthError = new Error(
       "Unable to connect to college server to load profile."
     );

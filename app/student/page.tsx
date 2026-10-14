@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { StudentLayout } from "@/components/layouts/StudentLayout";
@@ -11,7 +11,11 @@ import { BackToHome } from "@/components/ui/BackToHome";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { getStudentProfile, StudentProfileData, StudentAuthError } from "@/lib/services/student-service";
-import { GraduationCap, User, BookOpen, Building, AlertCircle } from "lucide-react";
+import { StudentProfileSection } from "@/components/student/StudentProfileSection";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { Button } from "@/components/ui/Button";
+import { getStatusBadgeVariant } from "@/lib/utils";
+import { AlertCircle, RefreshCw } from "lucide-react";
 
 function StudentDashboardContent() {
   const router = useRouter();
@@ -20,18 +24,44 @@ function StudentDashboardContent() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let isMounted = true;
+  const fetchProfile = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setLoadError(null);
+      const data = await getStudentProfile();
+      setProfile(data);
+    } catch (err: unknown) {
+      const authErr = err as StudentAuthError;
+      if (
+        authErr.code === "SESSION_EXPIRED" ||
+        authErr.code === "UNAUTHORIZED" ||
+        authErr.status === 401 ||
+        authErr.status === 403
+      ) {
+        logout();
+        router.push("/student/login");
+        return;
+      }
+      setLoadError(
+        authErr.message || "Failed to load live profile from college server. Please try again."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [logout, router]);
 
-    async function loadProfile() {
-      try {
-        setIsLoading(true);
-        setLoadError(null);
-        const data = await getStudentProfile();
-        if (isMounted) {
-          setProfile(data);
-        }
-      } catch (err: unknown) {
+  useEffect(() => {
+    let active = true;
+
+    getStudentProfile()
+      .then((data) => {
+        if (!active) return;
+        setProfile(data);
+        setIsLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setIsLoading(false);
         const authErr = err as StudentAuthError;
         if (
           authErr.code === "SESSION_EXPIRED" ||
@@ -43,33 +73,19 @@ function StudentDashboardContent() {
           router.push("/student/login");
           return;
         }
-        if (isMounted) {
-          setLoadError(
-            authErr.message || "Failed to load live profile. Displaying cached session details."
-          );
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    loadProfile();
+        setLoadError(
+          authErr.message || "Failed to load live profile from college server. Please try again."
+        );
+      });
 
     return () => {
-      isMounted = false;
+      active = false;
     };
   }, [logout, router]);
 
   const studentName = profile?.fullName || user?.name || "Student";
-  const rollNumber = profile?.rollNumber || user?.rollNumber || "N/A";
-  const studentIdNumber = profile?.studentIdNumber || user?.studentIdNumber || "N/A";
-  const programName = profile?.program?.name || user?.programName || "Enrolled Program";
-  const campus = profile?.program?.campus || "Main Campus";
-  const shift = profile?.program?.shift || "Morning";
+  const rollNumber = profile?.rollNumber || user?.rollNumber || "";
   const email = profile?.email || user?.email || "";
-  const phone = profile?.phone || user?.phone || "";
   const status = profile?.status || "active";
 
   return (
@@ -85,97 +101,67 @@ function StudentDashboardContent() {
           { label: "Student Portal", href: "/student" },
           { label: "Dashboard" },
         ]}
-        badge={<Badge variant="success">Active Enrolled Student</Badge>}
-        actions={<BackToHome variant="button" />}
+        badge={
+          <Badge variant={getStatusBadgeVariant(status)}>
+            {status === "active" ? "Active Enrolled Student" : status.toUpperCase()}
+          </Badge>
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />}
+              onClick={() => fetchProfile()}
+              disabled={isLoading}
+            >
+              Refresh
+            </Button>
+            <BackToHome variant="button" />
+          </div>
+        }
       />
 
-      {loadError && (
-        <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
-          <span>{loadError}</span>
+      {loadError && profile && (
+        <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+            <span>{loadError}</span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            leftIcon={<RefreshCw className="w-3.5 h-3.5" />}
+            onClick={() => fetchProfile()}
+            className="text-xs shrink-0 bg-white"
+          >
+            Retry Live Sync
+          </Button>
         </div>
       )}
 
-      {isLoading ? (
+      {isLoading && !profile ? (
         <div className="py-12">
           <LoadingState label="Loading student enrollment profile..." />
         </div>
+      ) : loadError && !profile ? (
+        <ErrorState
+          title="Unable to load student profile"
+          description={loadError}
+          onRetry={fetchProfile}
+        />
+      ) : !profile ? (
+        <ErrorState
+          title="Student Profile Not Found"
+          description="Could not locate an active enrollment record for this account."
+          onRetry={fetchProfile}
+        />
       ) : (
         <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Enrollment Profile</CardTitle>
-                  <CardDescription>
-                    Official academic details from college admissions.
-                  </CardDescription>
-                </div>
-                <Badge variant={status === "active" ? "success" : "secondary"}>
-                  {status.toUpperCase()}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 dark:bg-slate-900/50 dark:border-slate-800">
-                  <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-                    <GraduationCap className="w-4 h-4 text-primary" />
-                    <span>Roll Number</span>
-                  </div>
-                  <p className="text-sm font-semibold font-mono text-text-primary">
-                    {rollNumber}
-                  </p>
-                </div>
+          {/* Complete Live Profile Sections */}
+          <StudentProfileSection profile={profile} />
 
-                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 dark:bg-slate-900/50 dark:border-slate-800">
-                  <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-                    <User className="w-4 h-4 text-primary" />
-                    <span>Student ID</span>
-                  </div>
-                  <p className="text-sm font-semibold font-mono text-text-primary">
-                    {studentIdNumber}
-                  </p>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 dark:bg-slate-900/50 dark:border-slate-800">
-                  <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-                    <BookOpen className="w-4 h-4 text-primary" />
-                    <span>Degree / Program</span>
-                  </div>
-                  <p className="text-sm font-semibold text-text-primary">
-                    {programName}
-                  </p>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 dark:bg-slate-900/50 dark:border-slate-800">
-                  <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-                    <Building className="w-4 h-4 text-primary" />
-                    <span>Campus & Shift</span>
-                  </div>
-                  <p className="text-sm font-semibold text-text-primary">
-                    {campus} ({shift})
-                  </p>
-                </div>
-              </div>
-
-              {(email || phone) && (
-                <div className="mt-4 pt-4 border-t border-border flex flex-wrap gap-4 text-xs text-slate-500">
-                  {email && (
-                    <div>
-                      <span className="font-medium text-text-secondary">Email:</span> {email}
-                    </div>
-                  )}
-                  {phone && (
-                    <div>
-                      <span className="font-medium text-text-secondary">Phone:</span> {phone}
-                    </div>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
+          {/* Reserved Space for Subsequent Modules */}
           <Card>
             <CardHeader>
               <CardTitle>Academic Portal Services</CardTitle>

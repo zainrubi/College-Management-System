@@ -486,6 +486,135 @@ async function runAllTests() {
       assert.strictEqual(localStorage.getItem(STUDENT_KEY), null);
     });
 
+    console.log("\n[6] Step 7.2: Comprehensive Student Profile & Academic Details Contract Verification");
+
+    await runTest("GET /api/students/profile returns all personal, contact, guardian, and academic fields", async () => {
+      const studentId = new mongoose.Types.ObjectId();
+      const applicantId = new mongoose.Types.ObjectId();
+      const applicationId = new mongoose.Types.ObjectId();
+
+      const mockStudent = {
+        _id: studentId,
+        applicantId,
+        applicationId,
+        studentIdNumber: "2026-F-CS-0042",
+        rollNumber: "BCS-F26-042",
+        fullName: "Ayesha Noor",
+        dob: "2005-04-18",
+        gender: "Female",
+        cnicBForm: "35102-9876543-2",
+        bloodGroup: "O+",
+        nationality: "Pakistani",
+        religion: "Islam",
+        phone: "03214567890",
+        email: "ayesha.noor@student.apex.edu.pk",
+        guardian: {
+          fatherName: "Tariq Mahmood Noor",
+          motherName: "Sultana Begum",
+          guardianPhone: "03009876543",
+        },
+        address: {
+          domicile: "Kasur",
+          currentAddress: "Street 4, Model Colony, Kanganpur",
+          permanentAddress: "Village 45-RB, Tehsil Chunian, Kasur",
+        },
+        program: {
+          academicLevel: "Undergraduate",
+          programName: "BS Computer Science",
+          shift: "Morning",
+          campus: "Kanganpur",
+          session: "Fall 2026",
+          currentSemesterOrYear: 1,
+        },
+        status: "active",
+        admissionDate: new Date("2026-09-01T00:00:00.000Z"),
+        createdAt: new Date("2026-08-25T10:00:00.000Z"),
+        updatedAt: new Date("2026-08-25T10:00:00.000Z"),
+      };
+
+      const req = { student: mockStudent };
+      const res = createMockRes();
+
+      await getStudentProfile(req, res);
+
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.success, true);
+      const data = res.body.student;
+
+      // Personal details
+      assert.strictEqual(data.fullName, "Ayesha Noor");
+      assert.strictEqual(data.studentIdNumber, "2026-F-CS-0042");
+      assert.strictEqual(data.rollNumber, "BCS-F26-042");
+      assert.strictEqual(data.dob, "2005-04-18");
+      assert.strictEqual(data.gender, "Female");
+      assert.strictEqual(data.cnicBForm, "35102-9876543-2");
+      assert.strictEqual(data.bloodGroup, "O+");
+      assert.strictEqual(data.nationality, "Pakistani");
+      assert.strictEqual(data.religion, "Islam");
+
+      // Contact details
+      assert.strictEqual(data.phone, "03214567890");
+      assert.strictEqual(data.email, "ayesha.noor@student.apex.edu.pk");
+      assert.strictEqual(data.address.domicile, "Kasur");
+      assert.strictEqual(data.address.currentAddress, "Street 4, Model Colony, Kanganpur");
+      assert.strictEqual(data.address.permanentAddress, "Village 45-RB, Tehsil Chunian, Kasur");
+
+      // Guardian details
+      assert.strictEqual(data.guardian.fatherName, "Tariq Mahmood Noor");
+      assert.strictEqual(data.guardian.motherName, "Sultana Begum");
+      assert.strictEqual(data.guardian.guardianPhone, "03009876543");
+
+      // Academic details
+      assert.strictEqual(data.program.academicLevel, "Undergraduate");
+      assert.strictEqual(data.program.programName, "BS Computer Science");
+      assert.strictEqual(data.program.shift, "Morning");
+      assert.strictEqual(data.program.campus, "Kanganpur");
+      assert.strictEqual(data.program.session, "Fall 2026");
+      assert.strictEqual(data.program.currentSemesterOrYear, 1);
+      assert.strictEqual(data.status, "active");
+      assert.ok(data.admissionDate);
+
+      // Security check
+      assert.strictEqual(data.password, undefined);
+      assert.strictEqual(data.activationTokenHash, undefined);
+      assert.strictEqual(data.activationTokenExpires, undefined);
+    });
+
+    await runTest("GET /api/students/profile preserves missing optional fields as undefined without fake data", async () => {
+      const studentId = new mongoose.Types.ObjectId();
+      const mockStudentWithMissingFields = {
+        _id: studentId,
+        studentIdNumber: "2026-F-ICS-0099",
+        rollNumber: "ICS-F26-099",
+        fullName: "Zahid Qureshi",
+        phone: "03121234567",
+        status: "active",
+        program: {
+          academicLevel: "Intermediate",
+          programName: "FSc Pre-Medical",
+          shift: "Evening",
+          campus: "Kanganpur",
+          session: "2026-2028",
+          currentSemesterOrYear: 1,
+        },
+        admissionDate: new Date("2026-09-10"),
+      };
+
+      const req = { student: mockStudentWithMissingFields };
+      const res = createMockRes();
+
+      await getStudentProfile(req, res);
+
+      assert.strictEqual(res.statusCode, 200);
+      const data = res.body.student;
+      assert.strictEqual(data.fullName, "Zahid Qureshi");
+      assert.strictEqual(data.bloodGroup, undefined);
+      assert.strictEqual(data.guardian, undefined);
+      assert.strictEqual(data.address, undefined);
+      assert.strictEqual(data.email, undefined);
+      assert.strictEqual(data.password, undefined);
+    });
+
   } finally {
     Student.findOne = originalFindOne;
     Student.findById = originalFindById;
