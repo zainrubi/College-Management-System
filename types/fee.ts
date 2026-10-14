@@ -48,15 +48,17 @@ export interface FeeVoucherItem {
 }
 
 export interface Concession {
-  id: string;
-  voucherId: string;
-  originalDueDate: string;
-  newAllowedDate: string;
+  id?: string;
+  voucherId?: string;
+  isGranted?: boolean;
+  originalDueDate?: string;
+  newAllowedDate?: string;
   discountAmountPKR?: number;
-  reason: string;
-  grantedByAdminId: string;
-  grantedByAdminName: string;
-  grantedAtTimestamp: string;
+  reason?: string;
+  grantedByAdminId?: string;
+  grantedByAdminName?: string;
+  grantedAt?: string;
+  grantedAtTimestamp?: string;
 }
 
 export type VoucherStatus =
@@ -67,6 +69,25 @@ export type VoucherStatus =
   | "extended"
   | "cancelled";
 
+export type VoucherPaymentMethod =
+  | "Bank Challan"
+  | "Bank Account"
+  | "JazzCash"
+  | "Easypaisa"
+  | "Cash (Accounts Office)"
+  | string;
+
+export interface VoucherPaymentRecord {
+  id?: string;
+  receiptNumber?: string;
+  transactionReference?: string;
+  amountPaidPKR: number;
+  paymentDate?: string;
+  paymentMethod?: VoucherPaymentMethod;
+  verifiedByAdminName?: string;
+  verifiedAt?: string;
+}
+
 export interface FeeVoucher {
   id: string; // e.g. VCH-2026-0891
   voucherNumber: string;
@@ -74,19 +95,39 @@ export interface FeeVoucher {
   studentName: string;
   studentRollNumber: string;
   programName: string;
-  academicSessionName: string;
+  academicSessionName?: string;
   items: FeeVoucherItem[];
   subtotalPKR: number;
   discountPKR: number;
   totalAmountPKR: number;
   paidAmountPKR: number;
+  outstandingAmountPKR?: number;
   issueDate: string;
   originalDueDate: string; // CRITICAL: Preserved original due date
   finalAllowedDate: string; // Modified only if concession/extension is granted
-  concession?: Concession; // Details of extension/concession if granted
+  concession?: Concession | null; // Details of extension/concession if granted
+  paymentRecords?: VoucherPaymentRecord[];
   status: VoucherStatus;
   remarks?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
+
+export interface StudentVouchersSummary {
+  totalVouchers: number;
+  unpaidCount: number;
+  pendingCount: number;
+  totalOutstandingPKR: number;
+  totalPaidPKR: number;
+}
+
+export interface StudentVouchersResponse {
+  success: boolean;
+  vouchers: FeeVoucher[];
+  summary: StudentVouchersSummary;
+}
+
+export type StudentVouchersResult = StudentVouchersResponse;
 
 export type PaymentMethod = "JazzCash" | "Easypaisa" | "Bank Account";
 

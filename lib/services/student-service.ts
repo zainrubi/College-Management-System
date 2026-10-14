@@ -1,15 +1,21 @@
 export const STUDENT_TOKEN_STORAGE_KEY = "cms_student_jwt_token";
 const AUTH_USER_STORAGE_KEY = "cms_demo_auth_user";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/+$/, "") ||
-  (process.env.NODE_ENV === "development" ? "http://localhost:5000" : "");
+function getApiBaseUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/+$/, "") ||
+    (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test" || !process.env.NODE_ENV
+      ? "http://localhost:5000"
+      : "")
+  );
+}
 
 function getApiUrl(path: string): string {
-  if (!API_BASE_URL) {
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) {
     throw new Error("Backend API URL is not configured. Set NEXT_PUBLIC_API_URL.");
   }
-  return `${API_BASE_URL}${path}`;
+  return `${baseUrl}${path}`;
 }
 
 function getStorage(): Storage | null {
@@ -79,11 +85,30 @@ import type {
   StudentProfileData,
 } from "@/types/people";
 
+import type {
+  FeeVoucher,
+  FeeVoucherItem,
+  VoucherStatus,
+  Concession,
+  VoucherPaymentRecord,
+  StudentVouchersSummary,
+  StudentVouchersResponse,
+  StudentVouchersResult,
+} from "@/types/fee";
+
 export type {
   StudentProgramInfo,
   StudentGuardianInfo,
   StudentAddressInfo,
   StudentProfileData,
+  FeeVoucher,
+  FeeVoucherItem,
+  VoucherStatus,
+  Concession,
+  VoucherPaymentRecord,
+  StudentVouchersSummary,
+  StudentVouchersResponse,
+  StudentVouchersResult,
 };
 
 export interface StudentLoginResult {
@@ -251,6 +276,104 @@ export async function getStudentProfile(
   }
 
   return data.student;
+}
+
+/**
+ * Fetches the authenticated student's fee vouchers and summary counters
+ * via GET /api/students/vouchers.
+ *
+ * Uses the student JWT (from localStorage `cms_student_jwt_token` or customToken).
+ * Rejects with typed StudentAuthError on missing auth, session expiry (401/403),
+ * rate limits (429), or server / network failure.
+ *
+ * Distinguishes an empty voucher list (valid successful response) from API errors.
+ * Never introduces fake vouchers or silent fallback data on failure.
+ */
+export async function getStudentVouchers(
+  customToken?: string
+): Promise<StudentVouchersResponse> {
+  const token = customToken || getStudentToken();
+  if (!token) {
+    const err: StudentAuthError = new Error("No active student authentication token found.");
+    err.code = "UNAUTHORIZED";
+    throw err;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(getApiUrl("/api/students/vouchers"), {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  } catch {
+    const err: StudentAuthError = new Error(
+      "Unable to connect to college server to load fee vouchers."
+    );
+    err.code = "NETWORK_ERROR";
+    throw err;
+  }
+
+  const data = (await response.json().catch(() => ({}))) as {
+    success?: boolean;
+    message?: string;
+    code?: string;
+    vouchers?: FeeVoucher[];
+    summary?: StudentVouchersSummary;
+  };
+
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      removeStudentToken();
+      const err: StudentAuthError = new Error(
+        data.message || "Student session expired or unauthorized. Please sign in again."
+      );
+      err.code = "SESSION_EXPIRED";
+      err.status = response.status;
+      throw err;
+    }
+
+    if (response.status === 429 || data.code === "TOO_MANY_REQUESTS") {
+      const err: StudentAuthError = new Error(
+        data.message || "Too many requests. Please try again later."
+      );
+      err.code = "RATE_LIMITED";
+      err.status = 429;
+      throw err;
+    }
+
+    const err: StudentAuthError = new Error(
+      data.message || "Failed to load student fee vouchers"
+    );
+    err.status = response.status;
+    err.code = data.code || (response.status >= 500 ? "SERVER_ERROR" : undefined);
+    throw err;
+  }
+
+  if (
+    !data.success ||
+    !Array.isArray(data.vouchers) ||
+    !data.summary ||
+    typeof data.summary.totalOutstandingPKR !== "number" ||
+    typeof data.summary.totalVouchers !== "number"
+  ) {
+    const err: StudentAuthError = new Error("Invalid fee voucher response from server.");
+    err.code = "MALFORMED_RESPONSE";
+    throw err;
+  }
+
+  return {
+    success: true,
+    vouchers: data.vouchers,
+    summary: {
+      totalVouchers: Number(data.summary.totalVouchers) || 0,
+      unpaidCount: Number(data.summary.unpaidCount) || 0,
+      pendingCount: Number(data.summary.pendingCount ?? data.summary.unpaidCount) || 0,
+      totalOutstandingPKR: Number(data.summary.totalOutstandingPKR) || 0,
+      totalPaidPKR: Number(data.summary.totalPaidPKR) || 0,
+    },
+  };
 }
 
 export const APPLICANT_TOKEN_STORAGE_KEY = "cms_applicant_jwt_token";

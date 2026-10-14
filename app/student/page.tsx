@@ -12,6 +12,7 @@ import { LoadingState } from "@/components/ui/LoadingState";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { getStudentProfile, StudentProfileData, StudentAuthError } from "@/lib/services/student-service";
 import { StudentProfileSection } from "@/components/student/StudentProfileSection";
+import { StudentFeeSection } from "@/components/student/StudentFeeSection";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Button } from "@/components/ui/Button";
 import { getStatusBadgeVariant } from "@/lib/utils";
@@ -23,6 +24,7 @@ function StudentDashboardContent() {
   const [profile, setProfile] = useState<StudentProfileData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [unpaidVoucherCount, setUnpaidVoucherCount] = useState<number>(0);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -93,6 +95,7 @@ function StudentDashboardContent() {
       studentName={studentName}
       studentRollNumber={rollNumber}
       studentEmail={email}
+      unpaidVoucherCount={unpaidVoucherCount}
     >
       <PageHeader
         title={`Welcome, ${studentName}`}
@@ -157,9 +160,12 @@ function StudentDashboardContent() {
           onRetry={fetchProfile}
         />
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-8">
           {/* Complete Live Profile Sections */}
           <StudentProfileSection profile={profile} />
+
+          {/* Live Student Fee Vouchers & Payment Status */}
+          <StudentFeeSection onSummaryChange={(summary) => setUnpaidVoucherCount(summary.unpaidCount)} />
 
           {/* Reserved Space for Subsequent Modules */}
           <Card>
@@ -171,7 +177,7 @@ function StudentDashboardContent() {
             </CardHeader>
             <CardContent>
               <p className="text-xs text-slate-500">
-                Feature dashboards for Student Fees, Attendance, and Handouts will be built in subsequent development stages.
+                Feature dashboards for Student Attendance and Study Handouts will be built in subsequent development stages.
               </p>
             </CardContent>
           </Card>

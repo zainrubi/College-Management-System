@@ -2,6 +2,7 @@ const express = require("express");
 const {
   loginStudent,
   getStudentProfile,
+  getStudentVouchers,
   requestStudentActivation,
   activateStudentAccount,
 } = require("../controllers/studentController");
@@ -26,5 +27,8 @@ router.post("/login", studentLoginLimiter, loginStudent);
 // Student Protected Profile Routes
 router.get("/profile", protectStudent, getStudentProfile);
 router.get("/me", protectStudent, getStudentProfile);
+
+// Student Protected Fee Voucher Routes
+router.get("/vouchers", protectStudent, getStudentVouchers);
 
 module.exports = router;

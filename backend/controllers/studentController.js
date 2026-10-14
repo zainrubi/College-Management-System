@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const Student = require("../models/Student");
 const Applicant = require("../models/Applicant");
+const FeeVoucher = require("../models/FeeVoucher");
 const { signToken, verifyToken } = require("../utils/jwt");
 
 /**
@@ -442,9 +443,111 @@ async function getStudentProfile(req, res) {
   }
 }
 
+/**
+ * GET /api/students/vouchers
+ * Retrieves all fee vouchers belonging strictly to the authenticated student.
+ * Protected by protectStudent middleware.
+ * Never trusts client-supplied query/params; enforces ownership via req.student._id.
+ */
+async function getStudentVouchers(req, res) {
+  try {
+    const student = req.student || req.user;
+    if (!student || !student._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: student session not found",
+      });
+    }
+
+    // Explicitly query strictly by the authenticated student ID
+    const vouchers = await FeeVoucher.find({ studentId: student._id })
+      .sort({ issueDate: -1, createdAt: -1 })
+      .lean();
+
+    let unpaidCount = 0;
+    let totalOutstandingPKR = 0;
+    let totalPaidPKR = 0;
+
+    const formattedVouchers = (vouchers || []).map((v) => {
+      const isCancelled = v.status === "cancelled";
+      const totalAmount = Number(v.totalAmountPKR) || 0;
+      const paidAmount = Number(v.paidAmountPKR) || 0;
+      // Calculate outstanding amounts consistently using max(totalAmountPKR - paidAmountPKR, 0)
+      const outstandingAmount = isCancelled ? 0 : Math.max(0, totalAmount - paidAmount);
+
+      totalPaidPKR += paidAmount;
+
+      if (!isCancelled) {
+        totalOutstandingPKR += outstandingAmount;
+        if (["unpaid", "partially_paid", "overdue", "extended"].includes(v.status) || outstandingAmount > 0) {
+          unpaidCount += 1;
+        }
+      }
+
+      return {
+        id: v._id ? v._id.toString() : "",
+        voucherNumber: v.voucherNumber,
+        studentId: v.studentId ? v.studentId.toString() : "",
+        studentRollNumber: v.studentRollNumber,
+        studentName: v.studentName,
+        programName: v.programName,
+        academicSessionName: v.academicSessionName,
+        items: (v.items || []).map((item) => ({
+          id: item._id ? item._id.toString() : "",
+          title: item.title,
+          category: item.category,
+          amountPKR: Number(item.amountPKR) || 0,
+        })),
+        subtotalPKR: Number(v.subtotalPKR) || 0,
+        discountPKR: Number(v.discountPKR) || 0,
+        totalAmountPKR: totalAmount,
+        paidAmountPKR: paidAmount,
+        outstandingAmountPKR: outstandingAmount,
+        issueDate: v.issueDate,
+        originalDueDate: v.originalDueDate,
+        finalAllowedDate: v.finalAllowedDate,
+        concession: v.concession || null,
+        paymentRecords: (v.paymentRecords || []).map((record) => ({
+          id: record._id ? record._id.toString() : undefined,
+          receiptNumber: record.receiptNumber,
+          transactionReference: record.transactionReference,
+          amountPaidPKR: Number(record.amountPaidPKR) || 0,
+          paymentDate: record.paymentDate,
+          paymentMethod: record.paymentMethod,
+          verifiedByAdminName: record.verifiedByAdminName,
+          verifiedAt: record.verifiedAt,
+        })),
+        status: v.status,
+        remarks: v.remarks,
+        createdAt: v.createdAt,
+        updatedAt: v.updatedAt,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      vouchers: formattedVouchers,
+      summary: {
+        totalVouchers: formattedVouchers.length,
+        unpaidCount,
+        pendingCount: unpaidCount,
+        totalOutstandingPKR,
+        totalPaidPKR,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to retrieve student vouchers:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Server error retrieving fee vouchers",
+    });
+  }
+}
+
 module.exports = {
   loginStudent,
   getStudentProfile,
+  getStudentVouchers,
   requestStudentActivation,
   activateStudentAccount,
   buildStudentLookupQuery,

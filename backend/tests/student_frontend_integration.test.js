@@ -5,12 +5,14 @@ const { signToken } = require("../utils/jwt");
 const {
   loginStudent,
   getStudentProfile,
+  getStudentVouchers,
   requestStudentActivation,
   activateStudentAccount,
 } = require("../controllers/studentController");
 const { protectStudent } = require("../middleware/authMiddleware");
 const Student = require("../models/Student");
 const Applicant = require("../models/Applicant");
+const FeeVoucher = require("../models/FeeVoucher");
 
 if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = "test_jwt_secret_key_for_unit_tests_1234567890abcdef";
@@ -71,6 +73,7 @@ async function runAllTests() {
 
   const originalFindOne = Student.findOne;
   const originalFindById = Student.findById;
+  const originalFeeVoucherFind = FeeVoucher.find;
 
   try {
     console.log("[1] Backend API Contract Verification for Student Frontend");
@@ -615,9 +618,478 @@ async function runAllTests() {
       assert.strictEqual(data.password, undefined);
     });
 
+    // ─── 7. Step 7.3: Fee Voucher Service Integration & Error Handling Contract Verification ───
+    console.log("\n[7] Step 7.3: Fee Voucher Service Integration & Error Handling Contract Verification");
+
+    await runTest("GET /api/students/vouchers returns complete voucher details and calculated summary for student frontend", async () => {
+      const studentId = new mongoose.Types.ObjectId();
+      const mockVouchers = [
+        {
+          _id: new mongoose.Types.ObjectId(),
+          voucherNumber: "VCH-2026-0042",
+          studentId,
+          studentRollNumber: "BCS-F26-042",
+          studentName: "Ayesha Noor",
+          programName: "BS Computer Science",
+          academicSessionName: "Fall 2026",
+          items: [
+            { _id: new mongoose.Types.ObjectId(), title: "Tuition Fee", category: "tuition", amountPKR: 45000 },
+            { _id: new mongoose.Types.ObjectId(), title: "Lab Charges", category: "lab", amountPKR: 5000 },
+          ],
+          subtotalPKR: 50000,
+          discountPKR: 5000,
+          totalAmountPKR: 45000,
+          paidAmountPKR: 15000,
+          issueDate: new Date("2026-09-01"),
+          originalDueDate: new Date("2026-09-20"),
+          finalAllowedDate: new Date("2026-09-30"),
+          concession: {
+            isGranted: true,
+            originalDueDate: new Date("2026-09-20"),
+            newAllowedDate: new Date("2026-09-30"),
+            discountAmountPKR: 5000,
+            reason: "Merit scholarship",
+            grantedByAdminName: "Prof. Tariq",
+          },
+          paymentRecords: [
+            {
+              _id: new mongoose.Types.ObjectId(),
+              receiptNumber: "RCP-2026-001",
+              transactionReference: "TXN-987654",
+              amountPaidPKR: 15000,
+              paymentDate: new Date("2026-09-15"),
+              paymentMethod: "Bank Challan",
+              verifiedByAdminName: "Accounts Office",
+            },
+          ],
+          status: "partially_paid",
+          remarks: "First installment settled",
+          createdAt: new Date("2026-09-01T10:00:00.000Z"),
+          updatedAt: new Date("2026-09-15T12:00:00.000Z"),
+        },
+      ];
+
+      FeeVoucher.find = () => ({
+        sort: () => ({
+          lean: () => Promise.resolve(mockVouchers),
+        }),
+      });
+
+      const req = { student: { _id: studentId } };
+      const res = createMockRes();
+
+      await getStudentVouchers(req, res);
+
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.success, true);
+      assert.strictEqual(res.body.vouchers.length, 1);
+
+      const v = res.body.vouchers[0];
+      assert.strictEqual(v.voucherNumber, "VCH-2026-0042");
+      assert.strictEqual(v.studentRollNumber, "BCS-F26-042");
+      assert.strictEqual(v.totalAmountPKR, 45000);
+      assert.strictEqual(v.paidAmountPKR, 15000);
+      assert.strictEqual(v.outstandingAmountPKR, 30000);
+      assert.strictEqual(v.status, "partially_paid");
+      assert.strictEqual(v.items.length, 2);
+      assert.strictEqual(v.concession.isGranted, true);
+      assert.strictEqual(v.paymentRecords.length, 1);
+      assert.strictEqual(v.paymentRecords[0].receiptNumber, "RCP-2026-001");
+
+      // Verify summary counters
+      assert.strictEqual(res.body.summary.totalVouchers, 1);
+      assert.strictEqual(res.body.summary.unpaidCount, 1);
+      assert.strictEqual(res.body.summary.pendingCount, 1);
+      assert.strictEqual(res.body.summary.totalOutstandingPKR, 30000);
+      assert.strictEqual(res.body.summary.totalPaidPKR, 15000);
+    });
+
+    await runTest("Empty voucher list returns 200 with empty array and zeroed summary (not an error)", async () => {
+      const studentId = new mongoose.Types.ObjectId();
+      FeeVoucher.find = () => ({
+        sort: () => ({
+          lean: () => Promise.resolve([]),
+        }),
+      });
+
+      const req = { student: { _id: studentId } };
+      const res = createMockRes();
+
+      await getStudentVouchers(req, res);
+
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.success, true);
+      assert.deepStrictEqual(res.body.vouchers, []);
+      assert.strictEqual(res.body.summary.totalVouchers, 0);
+      assert.strictEqual(res.body.summary.unpaidCount, 0);
+      assert.strictEqual(res.body.summary.pendingCount, 0);
+      assert.strictEqual(res.body.summary.totalOutstandingPKR, 0);
+      assert.strictEqual(res.body.summary.totalPaidPKR, 0);
+    });
+
+    // Client service simulation helper mirroring lib/services/student-service.ts getStudentVouchers()
+    async function simulateGetStudentVouchers({ token, fetchFn, storage }) {
+      if (!token) {
+        const err = new Error("No active student authentication token found.");
+        err.code = "UNAUTHORIZED";
+        throw err;
+      }
+
+      let response;
+      try {
+        response = await fetchFn("/api/students/vouchers", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        const err = new Error("Unable to connect to college server to load fee vouchers.");
+        err.code = "NETWORK_ERROR";
+        throw err;
+      }
+
+      const data = response.body || {};
+
+      if (response.status !== 200) {
+        if (response.status === 401 || response.status === 403) {
+          storage.removeItem("cms_student_jwt_token");
+          const err = new Error(data.message || "Student session expired or unauthorized. Please sign in again.");
+          err.code = "SESSION_EXPIRED";
+          err.status = response.status;
+          throw err;
+        }
+
+        if (response.status === 429 || data.code === "TOO_MANY_REQUESTS") {
+          const err = new Error(data.message || "Too many requests. Please try again later.");
+          err.code = "RATE_LIMITED";
+          err.status = 429;
+          throw err;
+        }
+
+        const err = new Error(data.message || "Failed to load student fee vouchers");
+        err.status = response.status;
+        err.code = data.code || (response.status >= 500 ? "SERVER_ERROR" : undefined);
+        throw err;
+      }
+
+      if (
+        !data.success ||
+        !Array.isArray(data.vouchers) ||
+        !data.summary ||
+        typeof data.summary.totalOutstandingPKR !== "number" ||
+        typeof data.summary.totalVouchers !== "number"
+      ) {
+        const err = new Error("Invalid fee voucher response from server.");
+        err.code = "MALFORMED_RESPONSE";
+        throw err;
+      }
+
+      return {
+        success: true,
+        vouchers: data.vouchers,
+        summary: {
+          totalVouchers: Number(data.summary.totalVouchers) || 0,
+          unpaidCount: Number(data.summary.unpaidCount) || 0,
+          pendingCount: Number(data.summary.pendingCount ?? data.summary.unpaidCount) || 0,
+          totalOutstandingPKR: Number(data.summary.totalOutstandingPKR) || 0,
+          totalPaidPKR: Number(data.summary.totalPaidPKR) || 0,
+        },
+      };
+    }
+
+    await runTest("Frontend service maps successful response into StudentVouchersResponse structure without inventing fields", async () => {
+      const storage = createMockLocalStorage();
+      storage.setItem("cms_student_jwt_token", "valid_jwt_student_token");
+
+      const mockApiResponse = {
+        status: 200,
+        body: {
+          success: true,
+          vouchers: [
+            {
+              id: "vch_1",
+              voucherNumber: "VCH-2026-0001",
+              studentId: "std_1",
+              studentRollNumber: "BCS-F26-001",
+              studentName: "Muhammad Ali",
+              programName: "BS Computer Science",
+              academicSessionName: "Fall 2026",
+              items: [{ id: "item_1", title: "Tuition", category: "tuition", amountPKR: 45000 }],
+              subtotalPKR: 45000,
+              discountPKR: 0,
+              totalAmountPKR: 45000,
+              paidAmountPKR: 0,
+              outstandingAmountPKR: 45000,
+              issueDate: "2026-09-01T00:00:00.000Z",
+              originalDueDate: "2026-09-20T00:00:00.000Z",
+              finalAllowedDate: "2026-09-20T00:00:00.000Z",
+              concession: null,
+              paymentRecords: [],
+              status: "unpaid",
+              remarks: "Regular semester fee",
+            },
+          ],
+          summary: {
+            totalVouchers: 1,
+            unpaidCount: 1,
+            pendingCount: 1,
+            totalOutstandingPKR: 45000,
+            totalPaidPKR: 0,
+          },
+        },
+      };
+
+      const result = await simulateGetStudentVouchers({
+        token: storage.getItem("cms_student_jwt_token"),
+        fetchFn: async () => mockApiResponse,
+        storage,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.vouchers.length, 1);
+      assert.strictEqual(result.vouchers[0].voucherNumber, "VCH-2026-0001");
+      assert.strictEqual(result.vouchers[0].outstandingAmountPKR, 45000);
+      assert.strictEqual(result.summary.totalOutstandingPKR, 45000);
+      assert.strictEqual(result.summary.totalVouchers, 1);
+      assert.strictEqual(result.summary.unpaidCount, 1);
+    });
+
+    await runTest("Frontend service treats empty voucher list as valid result without falling back to mock vouchers", async () => {
+      const storage = createMockLocalStorage();
+      storage.setItem("cms_student_jwt_token", "valid_jwt_student_token");
+
+      const mockEmptyApiResponse = {
+        status: 200,
+        body: {
+          success: true,
+          vouchers: [],
+          summary: {
+            totalVouchers: 0,
+            unpaidCount: 0,
+            pendingCount: 0,
+            totalOutstandingPKR: 0,
+            totalPaidPKR: 0,
+          },
+        },
+      };
+
+      const result = await simulateGetStudentVouchers({
+        token: storage.getItem("cms_student_jwt_token"),
+        fetchFn: async () => mockEmptyApiResponse,
+        storage,
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.deepStrictEqual(result.vouchers, []);
+      assert.strictEqual(result.summary.totalVouchers, 0);
+      assert.strictEqual(result.summary.totalOutstandingPKR, 0);
+    });
+
+    await runTest("Frontend service rejects malformed API responses (missing success, vouchers array, or summary)", async () => {
+      const storage = createMockLocalStorage();
+      storage.setItem("cms_student_jwt_token", "valid_jwt_student_token");
+
+      // Case 1: Missing vouchers array
+      await assert.rejects(
+        async () => {
+          await simulateGetStudentVouchers({
+            token: "valid_token",
+            fetchFn: async () => ({
+              status: 200,
+              body: { success: true, summary: { totalVouchers: 0, totalOutstandingPKR: 0 } },
+            }),
+            storage,
+          });
+        },
+        (err) => err.code === "MALFORMED_RESPONSE"
+      );
+
+      // Case 2: Missing success: true
+      await assert.rejects(
+        async () => {
+          await simulateGetStudentVouchers({
+            token: "valid_token",
+            fetchFn: async () => ({
+              status: 200,
+              body: { success: false, vouchers: [], summary: { totalVouchers: 0, totalOutstandingPKR: 0 } },
+            }),
+            storage,
+          });
+        },
+        (err) => err.code === "MALFORMED_RESPONSE"
+      );
+
+      // Case 3: Missing summary
+      await assert.rejects(
+        async () => {
+          await simulateGetStudentVouchers({
+            token: "valid_token",
+            fetchFn: async () => ({
+              status: 200,
+              body: { success: true, vouchers: [] },
+            }),
+            storage,
+          });
+        },
+        (err) => err.code === "MALFORMED_RESPONSE"
+      );
+    });
+
+    await runTest("Frontend service handles HTTP 401 and 403 by wiping student token and throwing SESSION_EXPIRED", async () => {
+      const storage = createMockLocalStorage();
+      storage.setItem("cms_student_jwt_token", "expired_token_123");
+
+      await assert.rejects(
+        async () => {
+          await simulateGetStudentVouchers({
+            token: storage.getItem("cms_student_jwt_token"),
+            fetchFn: async () => ({
+              status: 401,
+              body: { success: false, message: "Invalid or expired token" },
+            }),
+            storage,
+          });
+        },
+        (err) => {
+          assert.strictEqual(err.code, "SESSION_EXPIRED");
+          assert.strictEqual(err.status, 401);
+          return true;
+        }
+      );
+
+      // Student token wiped
+      assert.strictEqual(storage.getItem("cms_student_jwt_token"), null);
+    });
+
+    await runTest("Frontend service preserves applicant and admin tokens upon student session expiration", async () => {
+      const storage = createMockLocalStorage();
+      storage.setItem("cms_student_jwt_token", "student_tok");
+      storage.setItem("cms_applicant_jwt_token", "applicant_tok_unaffected");
+      storage.setItem("cms_admin_jwt_token", "admin_tok_unaffected");
+
+      await assert.rejects(
+        async () => {
+          await simulateGetStudentVouchers({
+            token: storage.getItem("cms_student_jwt_token"),
+            fetchFn: async () => ({
+              status: 403,
+              body: { success: false, message: "Forbidden" },
+            }),
+            storage,
+          });
+        },
+        (err) => err.code === "SESSION_EXPIRED"
+      );
+
+      // Student token is removed, applicant and admin tokens remain perfectly intact
+      assert.strictEqual(storage.getItem("cms_student_jwt_token"), null);
+      assert.strictEqual(storage.getItem("cms_applicant_jwt_token"), "applicant_tok_unaffected");
+      assert.strictEqual(storage.getItem("cms_admin_jwt_token"), "admin_tok_unaffected");
+    });
+
+    await runTest("Frontend service handles HTTP 429 rate limiting with RATE_LIMITED error without clearing tokens", async () => {
+      const storage = createMockLocalStorage();
+      storage.setItem("cms_student_jwt_token", "valid_student_jwt");
+
+      await assert.rejects(
+        async () => {
+          await simulateGetStudentVouchers({
+            token: storage.getItem("cms_student_jwt_token"),
+            fetchFn: async () => ({
+              status: 429,
+              body: { success: false, message: "Too many requests. Please try again later." },
+            }),
+            storage,
+          });
+        },
+        (err) => {
+          assert.strictEqual(err.code, "RATE_LIMITED");
+          assert.strictEqual(err.status, 429);
+          return true;
+        }
+      );
+
+      // Token should NOT be wiped on 429
+      assert.strictEqual(storage.getItem("cms_student_jwt_token"), "valid_student_jwt");
+    });
+
+    await runTest("Frontend service handles network errors with NETWORK_ERROR", async () => {
+      const storage = createMockLocalStorage();
+      storage.setItem("cms_student_jwt_token", "valid_student_jwt");
+
+      await assert.rejects(
+        async () => {
+          await simulateGetStudentVouchers({
+            token: "valid_student_jwt",
+            fetchFn: async () => {
+              throw new Error("Failed to fetch");
+            },
+            storage,
+          });
+        },
+        (err) => {
+          assert.strictEqual(err.code, "NETWORK_ERROR");
+          return true;
+        }
+      );
+    });
+
+    await runTest("Tokens are never exposed in service logs, error messages, or rejected error properties", async () => {
+      const sensitiveToken = "super_secret_jwt_payload_9876543210";
+      const storage = createMockLocalStorage();
+
+      const scenarios = [
+        async () => {
+          await simulateGetStudentVouchers({
+            token: sensitiveToken,
+            fetchFn: async () => { throw new Error("Connection timed out"); },
+            storage,
+          });
+        },
+        async () => {
+          await simulateGetStudentVouchers({
+            token: sensitiveToken,
+            fetchFn: async () => ({ status: 401, body: { message: "Unauthorized" } }),
+            storage,
+          });
+        },
+        async () => {
+          await simulateGetStudentVouchers({
+            token: sensitiveToken,
+            fetchFn: async () => ({ status: 429, body: { message: "Rate limit exceeded" } }),
+            storage,
+          });
+        },
+        async () => {
+          await simulateGetStudentVouchers({
+            token: sensitiveToken,
+            fetchFn: async () => ({ status: 500, body: { message: "Internal server error" } }),
+            storage,
+          });
+        },
+        async () => {
+          await simulateGetStudentVouchers({
+            token: sensitiveToken,
+            fetchFn: async () => ({ status: 200, body: { corrupted: true } }),
+            storage,
+          });
+        },
+      ];
+
+      for (const scenario of scenarios) {
+        try {
+          await scenario();
+          assert.fail("Scenario should have thrown an error");
+        } catch (err) {
+          assert.strictEqual(err.message.includes(sensitiveToken), false);
+          assert.strictEqual(JSON.stringify(err).includes(sensitiveToken), false);
+        }
+      }
+    });
+
   } finally {
     Student.findOne = originalFindOne;
     Student.findById = originalFindById;
+    FeeVoucher.find = originalFeeVoucherFind;
   }
 
   console.log("\n─────────────────────────────────────────────────────────────");
