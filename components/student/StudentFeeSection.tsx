@@ -216,6 +216,7 @@ export function StudentFeeSection({ onSummaryChange, className }: StudentFeeSect
     }
 
     const pendingVouchers = vouchers.filter((v) => {
+      if (v.status === "cancelled") return false;
       const outstanding = v.outstandingAmountPKR ?? Math.max(0, v.totalAmountPKR - v.paidAmountPKR);
       return (
         ["unpaid", "partially_paid", "extended", "overdue"].includes(v.status) ||

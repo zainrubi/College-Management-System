@@ -162,7 +162,9 @@ function StudentDashboardContent() {
       ) : (
         <div className="space-y-8">
           {/* Complete Live Profile Sections */}
-          <StudentProfileSection profile={profile} />
+          <div id="profile" className="scroll-mt-20">
+            <StudentProfileSection profile={profile} />
+          </div>
 
           {/* Live Student Fee Vouchers & Payment Status */}
           <StudentFeeSection onSummaryChange={(summary) => setUnpaidVoucherCount(summary.unpaidCount)} />

@@ -34,6 +34,7 @@ export interface SidebarProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   className?: string;
+  unpaidVoucherCount?: number;
 }
 
 export function Sidebar({
@@ -42,6 +43,7 @@ export function Sidebar({
   collapsed = false,
   onToggleCollapse,
   className,
+  unpaidVoucherCount,
 }: SidebarProps) {
   const getRoleNavItems = (): NavItem[] => {
     switch (role) {
@@ -71,7 +73,15 @@ export function Sidebar({
         return [
           { label: "Dashboard", href: "#student-overview", icon: <LayoutDashboard className="w-5 h-5" />, active: true },
           { label: "Student Profile", href: "#profile", icon: <Users className="w-5 h-5" /> },
-          { label: "Fee Vouchers & Pay", href: "#fees", icon: <CreditCard className="w-5 h-5" />, badge: "1 Unpaid" },
+          {
+            label: "Fee Vouchers & Pay",
+            href: "#fees",
+            icon: <CreditCard className="w-5 h-5" />,
+            badge:
+              typeof unpaidVoucherCount === "number" && unpaidVoucherCount > 0
+                ? `${unpaidVoucherCount} Unpaid`
+                : undefined,
+          },
           { label: "Payment History", href: "#payments", icon: <Receipt className="w-5 h-5" /> },
           { label: "Attendance Record", href: "#attendance", icon: <Calendar className="w-5 h-5" /> },
           { label: "Study Handouts", href: "#handouts", icon: <BookOpen className="w-5 h-5" /> },

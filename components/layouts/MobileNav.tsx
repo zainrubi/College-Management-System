@@ -10,9 +10,10 @@ export interface MobileNavProps {
   onClose: () => void;
   role: UserRole;
   activePath?: string;
+  unpaidVoucherCount?: number;
 }
 
-export function MobileNav({ isOpen, onClose, role, activePath }: MobileNavProps) {
+export function MobileNav({ isOpen, onClose, role, activePath, unpaidVoucherCount }: MobileNavProps) {
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden";
@@ -50,7 +51,13 @@ export function MobileNav({ isOpen, onClose, role, activePath }: MobileNavProps)
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <Sidebar role={role} activePath={activePath} collapsed={false} className="w-full border-r-0 h-auto" />
+          <Sidebar
+            role={role}
+            activePath={activePath}
+            collapsed={false}
+            className="w-full border-r-0 h-auto"
+            unpaidVoucherCount={unpaidVoucherCount}
+          />
         </div>
       </div>
     </div>
