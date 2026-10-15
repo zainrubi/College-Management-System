@@ -10,9 +10,12 @@ const { protectAdmin } = require("../middleware/authMiddleware");
 const AdmissionApplication = require("../models/AdmissionApplication");
 const { signToken } = require("../utils/jwt");
 
-// Set test environment secret if not already set
+// Set test environment secret and credentials if not already set
 if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = "test_jwt_secret_key_for_unit_tests_1234567890abcdef";
+}
+if (!process.env.ADMIN_PASSWORD) {
+  process.env.ADMIN_PASSWORD = "password123";
 }
 
 // Helper to create mock Express response object
@@ -146,13 +149,52 @@ async function runAdminTests() {
     assert(res.body.message.includes("email/username and password"));
   });
 
-  await test("adminLogin rejects invalid credentials with HTTP 401", async () => {
+  await test("adminLogin rejects invalid identifier with HTTP 401", async () => {
     const req = { body: { identifier: "unauthorized_user", password: "somepassword" } };
     const res = createMockRes();
     await adminLogin(req, res);
     assert.strictEqual(res.statusCode, 401);
     assert.strictEqual(res.body.success, false);
     assert.strictEqual(res.body.message, "Invalid administrator credentials");
+  });
+
+  await test("adminLogin rejects incorrect password with HTTP 401", async () => {
+    const req = { body: { identifier: "admin", password: "definitely_wrong_password" } };
+    const res = createMockRes();
+    await adminLogin(req, res);
+    assert.strictEqual(res.statusCode, 401);
+    assert.strictEqual(res.body.success, false);
+    assert.strictEqual(res.body.message, "Invalid administrator credentials");
+  });
+
+  await test("adminLogin fails safely with HTTP 500 when JWT_SECRET is missing", async () => {
+    const originalSecret = process.env.JWT_SECRET;
+    delete process.env.JWT_SECRET;
+    try {
+      const req = { body: { identifier: "admin", password: "password123" } };
+      const res = createMockRes();
+      await adminLogin(req, res);
+      assert.strictEqual(res.statusCode, 500);
+      assert.strictEqual(res.body.success, false);
+      assert(res.body.message.includes("JWT_SECRET is not configured"));
+    } finally {
+      process.env.JWT_SECRET = originalSecret;
+    }
+  });
+
+  await test("adminLogin fails safely with HTTP 500 when ADMIN_PASSWORD is missing (no fail-open)", async () => {
+    const originalPassword = process.env.ADMIN_PASSWORD;
+    delete process.env.ADMIN_PASSWORD;
+    try {
+      const req = { body: { identifier: "admin", password: "arbitrary_attempted_password" } };
+      const res = createMockRes();
+      await adminLogin(req, res);
+      assert.strictEqual(res.statusCode, 500);
+      assert.strictEqual(res.body.success, false);
+      assert(res.body.message.includes("ADMIN_PASSWORD is not configured"));
+    } finally {
+      process.env.ADMIN_PASSWORD = originalPassword;
+    }
   });
 
   await test("adminLogin returns 200, JWT token, and admin details for valid credentials", async () => {

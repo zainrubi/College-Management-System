@@ -212,6 +212,23 @@ async function adminLogin(req, res) {
     const defaultAdminEmail = (process.env.ADMIN_EMAIL || "kashif.accounts@apex.edu.pk").toLowerCase();
     const defaultAdminUsername = (process.env.ADMIN_USERNAME || "admin").toLowerCase();
 
+    // Verify required server configuration
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret || typeof jwtSecret !== "string" || !jwtSecret.trim()) {
+      return res.status(500).json({
+        success: false,
+        message: "Server configuration error: JWT_SECRET is not configured on the server",
+      });
+    }
+
+    const configuredPassword = process.env.ADMIN_PASSWORD;
+    if (!configuredPassword || typeof configuredPassword !== "string" || !configuredPassword.trim()) {
+      return res.status(500).json({
+        success: false,
+        message: "Server configuration error: ADMIN_PASSWORD is not configured on the server",
+      });
+    }
+
     const isMatch =
       inputIdentifier === defaultAdminEmail ||
       inputIdentifier === defaultAdminUsername ||
@@ -225,8 +242,7 @@ async function adminLogin(req, res) {
       });
     }
 
-    const configuredPassword = process.env.ADMIN_PASSWORD;
-    if (configuredPassword && password !== configuredPassword) {
+    if (password !== configuredPassword) {
       return res.status(401).json({
         success: false,
         message: "Invalid administrator credentials",
@@ -253,9 +269,12 @@ async function adminLogin(req, res) {
     });
   } catch (error) {
     console.error("Admin login error:", error.message);
+    const isConfigError = error.message && error.message.includes("JWT_SECRET");
     return res.status(500).json({
       success: false,
-      message: "Server error during admin authentication",
+      message: isConfigError
+        ? "Server configuration error: JWT_SECRET is not configured on the server"
+        : "Server error during admin authentication",
     });
   }
 }

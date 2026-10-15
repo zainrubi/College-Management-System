@@ -92,7 +92,7 @@ export async function loginAdmin(
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.message || "Invalid administrator credentials");
+    throw new Error(data.message || `Authentication service error (HTTP ${response.status})`);
   }
 
   if (!data.token) {

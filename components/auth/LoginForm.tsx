@@ -100,7 +100,7 @@ export function LoginForm({
           icon: <ShieldCheck className="w-6 h-6 text-primary" />,
           fieldIcon: <ShieldCheck className="w-4 h-4" />,
           targetRoute: "/admin",
-          demoCreds: "Demo Admin Email: kashif.accounts@apex.edu.pk | Pass: any",
+          demoCreds: "Demo Admin: kashif.accounts@apex.edu.pk | Enter configured admin password",
           helperNote: undefined,
         };
       default:
@@ -200,7 +200,7 @@ export function LoginForm({
           const msg =
             err instanceof Error && err.message
               ? err.message
-              : "Invalid administrator credentials";
+              : "Unable to sign in. Please verify your credentials or server configuration.";
           setErrorMsg(msg);
         })
         .finally(() => setIsSubmitting(false));

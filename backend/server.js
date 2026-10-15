@@ -1,9 +1,10 @@
 const dns = require("dns");
 dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
-require("dotenv").config();
+require("dotenv").config({ path: path.resolve(__dirname, ".env") });
 const connectDB = require("./config/db");
 const applicantRoutes = require("./routes/applicantRoutes");
 const admissionApplicationRoutes = require("./routes/admissionApplicationRoutes");
