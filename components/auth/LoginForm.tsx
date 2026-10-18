@@ -94,13 +94,13 @@ export function LoginForm({
           defaultTitle: "Administrator Portal",
           defaultSubtitle:
             "System administration console for managing college operations, fees, and personnel.",
-          identifierLabel: "Admin Email or Username",
-          identifierPlaceholder: "e.g. kashif.accounts@apex.edu.pk or admin",
+          identifierLabel: "Email or Phone Number",
+          identifierPlaceholder: "Email or Phone Number",
           inputType: "text",
           icon: <ShieldCheck className="w-6 h-6 text-primary" />,
           fieldIcon: <ShieldCheck className="w-4 h-4" />,
           targetRoute: "/admin",
-          demoCreds: "Demo Admin: kashif.accounts@apex.edu.pk | Enter configured admin password",
+          demoCreds: "Demo Admin: Sign in with configured admin email or phone number",
           helperNote: undefined,
         };
       default:
@@ -129,7 +129,13 @@ export function LoginForm({
     setIsAccountNotActivated(false);
 
     if (!identifier.trim()) {
-      setErrorMsg(isApplicant ? "Mobile number must contain exactly 11 digits." : "Please enter your ID or Email.");
+      setErrorMsg(
+        isApplicant
+          ? "Mobile number must contain exactly 11 digits."
+          : role === "admin"
+            ? "Please enter your Email or Phone Number."
+            : "Please enter your ID or Email."
+      );
       return;
     }
 

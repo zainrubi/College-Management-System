@@ -17,6 +17,12 @@ if (!process.env.JWT_SECRET) {
 if (!process.env.ADMIN_PASSWORD) {
   process.env.ADMIN_PASSWORD = "password123";
 }
+if (!process.env.ADMIN_EMAIL) {
+  process.env.ADMIN_EMAIL = "kashif.accounts@apex.edu.pk";
+}
+if (!process.env.ADMIN_PHONE) {
+  process.env.ADMIN_PHONE = "03009988776";
+}
 
 // Helper to create mock Express response object
 function createMockRes() {
@@ -146,10 +152,57 @@ async function runAdminTests() {
     await adminLogin(req, res);
     assert.strictEqual(res.statusCode, 400);
     assert.strictEqual(res.body.success, false);
-    assert(res.body.message.includes("email/username and password"));
+    assert(res.body.message.includes("email or phone number and password"));
   });
 
-  await test("adminLogin rejects invalid identifier with HTTP 401", async () => {
+  await test("adminLogin returns 200, JWT token, and admin details for valid email login (case-insensitive)", async () => {
+    const req = { body: { identifier: "Kashif.Accounts@Apex.Edu.Pk", password: "password123" } };
+    const res = createMockRes();
+    await adminLogin(req, res);
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.success, true);
+    assert(typeof res.body.token === "string" && res.body.token.length > 20);
+    assert.strictEqual(res.body.admin.role, "admin");
+    assert.strictEqual(res.body.admin.email, "kashif.accounts@apex.edu.pk");
+  });
+
+  await test("adminLogin returns 200, JWT token, and admin details for valid phone login (standardized format)", async () => {
+    const req = { body: { identifier: "03009988776", password: "password123" } };
+    const res = createMockRes();
+    await adminLogin(req, res);
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.success, true);
+    assert(typeof res.body.token === "string" && res.body.token.length > 20);
+    assert.strictEqual(res.body.admin.role, "admin");
+  });
+
+  await test("adminLogin returns 200 for phone login with spaces, dashes, or +92 country code", async () => {
+    const req = { body: { identifier: "+92 300 9988776", password: "password123" } };
+    const res = createMockRes();
+    await adminLogin(req, res);
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.success, true);
+  });
+
+  await test("adminLogin rejects invalid email with HTTP 401", async () => {
+    const req = { body: { identifier: "wrong.email@apex.edu.pk", password: "password123" } };
+    const res = createMockRes();
+    await adminLogin(req, res);
+    assert.strictEqual(res.statusCode, 401);
+    assert.strictEqual(res.body.success, false);
+    assert.strictEqual(res.body.message, "Invalid administrator credentials");
+  });
+
+  await test("adminLogin rejects invalid phone number with HTTP 401", async () => {
+    const req = { body: { identifier: "03001112233", password: "password123" } };
+    const res = createMockRes();
+    await adminLogin(req, res);
+    assert.strictEqual(res.statusCode, 401);
+    assert.strictEqual(res.body.success, false);
+    assert.strictEqual(res.body.message, "Invalid administrator credentials");
+  });
+
+  await test("adminLogin rejects invalid arbitrary identifier with HTTP 401", async () => {
     const req = { body: { identifier: "unauthorized_user", password: "somepassword" } };
     const res = createMockRes();
     await adminLogin(req, res);
@@ -159,7 +212,7 @@ async function runAdminTests() {
   });
 
   await test("adminLogin rejects incorrect password with HTTP 401", async () => {
-    const req = { body: { identifier: "admin", password: "definitely_wrong_password" } };
+    const req = { body: { identifier: "kashif.accounts@apex.edu.pk", password: "definitely_wrong_password" } };
     const res = createMockRes();
     await adminLogin(req, res);
     assert.strictEqual(res.statusCode, 401);
@@ -171,7 +224,7 @@ async function runAdminTests() {
     const originalSecret = process.env.JWT_SECRET;
     delete process.env.JWT_SECRET;
     try {
-      const req = { body: { identifier: "admin", password: "password123" } };
+      const req = { body: { identifier: "kashif.accounts@apex.edu.pk", password: "password123" } };
       const res = createMockRes();
       await adminLogin(req, res);
       assert.strictEqual(res.statusCode, 500);
@@ -186,7 +239,7 @@ async function runAdminTests() {
     const originalPassword = process.env.ADMIN_PASSWORD;
     delete process.env.ADMIN_PASSWORD;
     try {
-      const req = { body: { identifier: "admin", password: "arbitrary_attempted_password" } };
+      const req = { body: { identifier: "kashif.accounts@apex.edu.pk", password: "arbitrary_attempted_password" } };
       const res = createMockRes();
       await adminLogin(req, res);
       assert.strictEqual(res.statusCode, 500);
@@ -197,15 +250,34 @@ async function runAdminTests() {
     }
   });
 
-  await test("adminLogin returns 200, JWT token, and admin details for valid credentials", async () => {
-    const req = { body: { identifier: "admin", password: "password123" } };
-    const res = createMockRes();
-    await adminLogin(req, res);
-    assert.strictEqual(res.statusCode, 200);
-    assert.strictEqual(res.body.success, true);
-    assert(typeof res.body.token === "string" && res.body.token.length > 20);
-    assert.strictEqual(res.body.admin.role, "admin");
-    assert.strictEqual(res.body.admin.id, "stf-001");
+  await test("adminLogin fails safely with HTTP 500 when ADMIN_EMAIL is missing during email login", async () => {
+    const originalEmail = process.env.ADMIN_EMAIL;
+    delete process.env.ADMIN_EMAIL;
+    try {
+      const req = { body: { identifier: "kashif.accounts@apex.edu.pk", password: "password123" } };
+      const res = createMockRes();
+      await adminLogin(req, res);
+      assert.strictEqual(res.statusCode, 500);
+      assert.strictEqual(res.body.success, false);
+      assert(res.body.message.includes("ADMIN_EMAIL is not configured"));
+    } finally {
+      process.env.ADMIN_EMAIL = originalEmail;
+    }
+  });
+
+  await test("adminLogin fails safely with HTTP 500 when ADMIN_PHONE is missing during phone login", async () => {
+    const originalPhone = process.env.ADMIN_PHONE;
+    delete process.env.ADMIN_PHONE;
+    try {
+      const req = { body: { identifier: "03009988776", password: "password123" } };
+      const res = createMockRes();
+      await adminLogin(req, res);
+      assert.strictEqual(res.statusCode, 500);
+      assert.strictEqual(res.body.success, false);
+      assert(res.body.message.includes("ADMIN_PHONE is not configured"));
+    } finally {
+      process.env.ADMIN_PHONE = originalPhone;
+    }
   });
 
   // ─── 1. Admin Authentication & Role Authorization Middleware ────────────

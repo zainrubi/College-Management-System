@@ -116,7 +116,7 @@ export async function loginAdmin(
  * Ensures an admin JWT exists, auto-logging in with default demo credentials if needed in development.
  */
 export async function ensureAdminToken(): Promise<string> {
-  let token = getAdminToken();
+  const token = getAdminToken();
   if (token) return token;
 
   try {

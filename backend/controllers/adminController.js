@@ -194,23 +194,37 @@ function serializeApplicationForAdmin(doc) {
 }
 
 /**
+ * Normalizes phone numbers for consistent comparison.
+ * Strips non-digits and standardizes Pakistani phone formats (03001234567 vs +923001234567).
+ */
+function normalizePhone(phone) {
+  if (!phone || typeof phone !== "string") return "";
+  let digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("0092")) {
+    digits = digits.slice(2);
+  }
+  if (digits.length === 12 && digits.startsWith("92")) {
+    digits = "0" + digits.slice(2);
+  }
+  return digits;
+}
+
+/**
  * POST /api/admin/login
- * Authenticates admin credentials and returns an RFC 7519 JWT signed with role: "admin".
+ * Authenticates admin credentials using configured email OR phone number + password.
+ * Returns an RFC 7519 JWT signed with role: "admin".
  */
 async function adminLogin(req, res) {
   try {
-    const { identifier, email, username, password } = req.body || {};
-    const inputIdentifier = (identifier || email || username || "").trim().toLowerCase();
+    const { identifier, email, phone, username, password } = req.body || {};
+    const rawIdentifier = (identifier || email || phone || username || "").trim();
 
-    if (!inputIdentifier || !password) {
+    if (!rawIdentifier || !password) {
       return res.status(400).json({
         success: false,
-        message: "Please provide your admin email/username and password",
+        message: "Please provide your admin email or phone number and password",
       });
     }
-
-    const defaultAdminEmail = (process.env.ADMIN_EMAIL || "kashif.accounts@apex.edu.pk").toLowerCase();
-    const defaultAdminUsername = (process.env.ADMIN_USERNAME || "admin").toLowerCase();
 
     // Verify required server configuration
     const jwtSecret = process.env.JWT_SECRET;
@@ -229,11 +243,45 @@ async function adminLogin(req, res) {
       });
     }
 
-    const isMatch =
-      inputIdentifier === defaultAdminEmail ||
-      inputIdentifier === defaultAdminUsername ||
-      inputIdentifier === "admin" ||
-      inputIdentifier === "kashif.accounts@apex.edu.pk";
+    const configuredEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+    const configuredPhone = normalizePhone(process.env.ADMIN_PHONE || "");
+    const configuredUsername = (process.env.ADMIN_USERNAME || "").trim().toLowerCase();
+
+    if (!configuredEmail && !configuredPhone && !configuredUsername) {
+      return res.status(500).json({
+        success: false,
+        message: "Server configuration error: ADMIN_EMAIL or ADMIN_PHONE is not configured on the server",
+      });
+    }
+
+    let isMatch = false;
+
+    if (rawIdentifier.includes("@")) {
+      // Email authentication: compare case-insensitively
+      if (!configuredEmail) {
+        return res.status(500).json({
+          success: false,
+          message: "Server configuration error: ADMIN_EMAIL is not configured on the server",
+        });
+      }
+      isMatch = rawIdentifier.toLowerCase() === configuredEmail;
+    } else {
+      // Phone number or username authentication
+      const normalizedInputPhone = normalizePhone(rawIdentifier);
+      if (normalizedInputPhone.length >= 7) {
+        if (!configuredPhone) {
+          return res.status(500).json({
+            success: false,
+            message: "Server configuration error: ADMIN_PHONE is not configured on the server",
+          });
+        }
+        isMatch = normalizedInputPhone === configuredPhone;
+      } else if (configuredUsername && rawIdentifier.toLowerCase() === configuredUsername) {
+        isMatch = true;
+      } else {
+        isMatch = false;
+      }
+    }
 
     if (!isMatch) {
       return res.status(401).json({
@@ -249,10 +297,12 @@ async function adminLogin(req, res) {
       });
     }
 
+    const adminEmailForToken = configuredEmail || "admin@apex.edu.pk";
+    const adminNameForToken = process.env.ADMIN_NAME || "Administrator";
     const token = signToken({
       id: "stf-001",
-      name: "Kashif Shahzad",
-      email: defaultAdminEmail,
+      name: adminNameForToken,
+      email: adminEmailForToken,
       role: "admin",
     });
 
@@ -262,8 +312,8 @@ async function adminLogin(req, res) {
       token,
       admin: {
         id: "stf-001",
-        name: "Kashif Shahzad",
-        email: defaultAdminEmail,
+        name: adminNameForToken,
+        email: adminEmailForToken,
         role: "admin",
       },
     });
