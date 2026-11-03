@@ -370,7 +370,37 @@ async function runTests() {
     assert.strictEqual(nextCalled, false);
   });
 
-  await test("protect middleware successfully authenticates valid token and populates req.user", async () => {
+  await test("protect middleware successfully authenticates valid token and populates req.user without x-applicant-id header", async () => {
+    const validToken = signToken({ id: dummyApplicantId, phone: dummyPhone });
+    const originalFindById = Applicant.findById;
+    const mockApplicantDoc = {
+      _id: dummyApplicantId,
+      id: dummyApplicantId,
+      fullName: "Verified Applicant",
+      phone: dummyPhone,
+    };
+    Applicant.findById = async (id) => (id === dummyApplicantId ? mockApplicantDoc : null);
+
+    try {
+      // Caller provides purely Bearer token without any client x-applicant-id header
+      const req = {
+        headers: {
+          authorization: `Bearer ${validToken}`,
+        },
+      };
+      const res = createMockRes();
+      let nextCalled = false;
+      await protect(req, res, () => { nextCalled = true; });
+
+      assert.strictEqual(nextCalled, true, "next() must be called for valid token without x-applicant-id");
+      assert.strictEqual(req.user._id, dummyApplicantId);
+      assert.strictEqual(req.user.fullName, "Verified Applicant");
+    } finally {
+      Applicant.findById = originalFindById;
+    }
+  });
+
+  await test("protect middleware successfully authenticates valid token when matching x-applicant-id header is provided", async () => {
     const validToken = signToken({ id: dummyApplicantId, phone: dummyPhone });
     const originalFindById = Applicant.findById;
     const mockApplicantDoc = {
@@ -385,15 +415,15 @@ async function runTests() {
       const req = {
         headers: {
           authorization: `Bearer ${validToken}`,
+          "x-applicant-id": dummyApplicantId,
         },
       };
       const res = createMockRes();
       let nextCalled = false;
       await protect(req, res, () => { nextCalled = true; });
 
-      assert.strictEqual(nextCalled, true, "next() must be called for valid token");
+      assert.strictEqual(nextCalled, true, "next() must be called when matching header is provided");
       assert.strictEqual(req.user._id, dummyApplicantId);
-      assert.strictEqual(req.user.fullName, "Verified Applicant");
     } finally {
       Applicant.findById = originalFindById;
     }

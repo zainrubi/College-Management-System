@@ -365,11 +365,8 @@ function getLocalApplication(): ApplicantApplicationData | null {
   return readJson<ApplicantApplicationData | null>(APPLICANT_APPLICATION_STORAGE_KEY, null);
 }
 
-function getApplicationHeaders(applicantId: string): Record<string, string> {
-  if (!APPLICANT_ID_PATTERN.test(applicantId)) {
-    throw new Error("Your applicant session is missing a valid server applicant ID. Please sign in again.");
-  }
-  const headers: Record<string, string> = { "x-applicant-id": applicantId };
+function getApplicationHeaders(_applicantId?: string): Record<string, string> {
+  const headers: Record<string, string> = {};
   const token = getApplicantToken();
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
@@ -499,14 +496,15 @@ function fromBackendApplication(value: unknown): ApplicantApplicationData {
 
 export async function getApplication(applicantId?: string): Promise<ApplicantApplicationData | null> {
   let localApplication = getLocalApplication();
-  if (!applicantId || !APPLICANT_ID_PATTERN.test(applicantId)) return localApplication;
-  if (localApplication?.applicantId && localApplication.applicantId !== applicantId) {
+  const token = getApplicantToken();
+  if (!token && (!applicantId || !APPLICANT_ID_PATTERN.test(applicantId))) return localApplication;
+  if (applicantId && localApplication?.applicantId && localApplication.applicantId !== applicantId) {
     localApplication = null;
   }
 
   try {
     const response = await fetch(getApiUrl("/api/applications/me"), {
-      headers: getApplicationHeaders(applicantId),
+      headers: getApplicationHeaders(),
       cache: "no-store",
     });
     if (response.status === 404) return localApplication;
@@ -547,10 +545,10 @@ export async function saveApplication(
 
 export async function saveAdmissionDraft(
   application: ApplicantApplicationData,
-  applicantId: string,
+  _applicantId?: string,
 ): Promise<ApplicantApplicationData> {
   const headers = {
-    ...getApplicationHeaders(applicantId),
+    ...getApplicationHeaders(),
     "Content-Type": "application/json",
   };
   const existingResponse = await fetch(getApiUrl("/api/applications/me"), {
@@ -642,23 +640,9 @@ function toBackendApplication(application: ApplicantApplicationData) {
 
 export async function submitApplication(
   application: ApplicantApplicationData,
-  applicantId?: string,
+  _applicantId?: string,
   resubmissionNote?: string,
 ): Promise<ApplicantApplicationData> {
-  const effectiveApplicantId =
-    applicantId ||
-    application.applicantId ||
-    (typeof window !== "undefined"
-      ? readJson<{ id?: string } | null>(AUTH_USER_STORAGE_KEY, null)?.id
-      : undefined);
-
-  if (!effectiveApplicantId || !APPLICANT_ID_PATTERN.test(effectiveApplicantId)) {
-    throw new ApplicationSubmissionError(
-      "Your applicant session is invalid or missing a server applicant ID. Please sign in again.",
-      { code: "AUTH_REQUIRED", statusCode: 401 },
-    );
-  }
-
   const token = getApplicantToken();
   if (!token) {
     throw new ApplicationSubmissionError(
@@ -668,7 +652,7 @@ export async function submitApplication(
   }
 
   const headers: Record<string, string> = {
-    ...getApplicationHeaders(effectiveApplicantId),
+    ...getApplicationHeaders(),
     "Content-Type": "application/json",
   };
 
